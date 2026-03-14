@@ -189,7 +189,7 @@ make test                # Run all tests
 make lint                # Run golangci-lint
 make fmt                 # Format code
 make check               # deps + fmt + vet + test (full CI check)
-make install             # Build and install to ~/.local/bin
+make install             # Build and install to ~/.nex
 make generate            # Run go generate
 make run                 # Build and run
 make clean               # Remove binary

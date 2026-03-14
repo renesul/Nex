@@ -1,7 +1,7 @@
 BINARY  = nex
 SRC     = ./cmd/nex/
 TAGS    = fts5
-INSTALL = $(HOME)/.local/bin
+INSTALL = $(HOME)/.nex
 
 .PHONY: build test lint fmt check install generate run clean
 
