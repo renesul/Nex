@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conhecimento - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.field textarea { min-height: 100px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Conhecimento</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/config">Config</a>
+    <a href="/conversas">Conversas</a>
+    <a href="/chat">Chat</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="card" id="form-card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <span id="form-title-text">Adicionar Conhecimento</span>
+    </h2>
+    <div class="field">
+      <label>Titulo</label>
+      <input type="text" id="entry-title" placeholder="Ex: Horário de funcionamento">
+      <div class="hint">Nome curto para identificar esta informação</div>
+    </div>
+    <div class="field">
+      <label>Conteudo</label>
+      <textarea id="entry-content" placeholder="Ex: Funcionamos de segunda a sexta, das 9h as 18h. Sabados das 9h as 13h."></textarea>
+      <div class="hint">Texto que a IA usará como referência para responder perguntas</div>
+    </div>
+    <div class="field">
+      <label>Tags</label>
+      <input type="text" id="entry-tags" placeholder="Ex: horario, atendimento (separadas por virgula)">
+      <div class="hint">Palavras-chave para facilitar a busca</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" id="save-btn" onclick="saveEntry()">Adicionar</button>
+      <button class="btn btn-secondary" id="cancel-btn" onclick="cancelEdit()" style="display:none;">Cancelar</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="search" placeholder="Filtrar entradas..." oninput="renderEntries()">
+    <div class="toolbar-actions">
+      <div class="btn-actions-menu">
+        <button class="btn btn-secondary btn-sm" tabindex="0">Operações em massa &#9662;</button>
+        <div class="actions-dropdown">
+          <button id="strip-html-btn" onclick="stripHTMLAll()">Limpar HTML</button>
+          <button id="compress-all-btn" onclick="compressAll()">Comprimir Todos</button>
+          <button id="embed-all-btn" onclick="embedAll()">Gerar Embeddings</button>
+          <button id="process-all-btn" onclick="processAll()">Processar Todos</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Titulo</th>
+          <th>Conteudo</th>
+          <th>Tags</th>
+          <th style="width:90px">Comprimido</th>
+          <th style="width:80px">Embedding</th>
+          <th style="width:60px">Ativo</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody id="entries-body">
+        <tr><td colspan="7" class="empty">Carregando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="modal-overlay" id="compressed-modal" style="display:none" onclick="if(event.target===this)closeCompressedModal()">
+  <div class="modal-box">
+    <h3 id="compressed-modal-title"></h3>
+    <pre id="compressed-modal-content"></pre>
+    <button class="btn btn-secondary" onclick="closeCompressedModal()">Fechar</button>
+  </div>
+</div>
+
+<script>
+let entries = [];
+let editingId = null;
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { toast('Sem permissao'); return null; }
+  return r;
+}
+async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
+
+async function loadEntries() {
+  try {
+    const r = await apiFetch('/api/knowledge');
+    if (!r) return;
+    entries = await r.json();
+    renderEntries();
+  } catch(e) { console.error(e); }
+}
+
+function renderEntries() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const body = document.getElementById('entries-body');
+
+  const filtered = entries.filter(e =>
+    e.title.toLowerCase().includes(q) ||
+    e.content.toLowerCase().includes(q) ||
+    e.tags.toLowerCase().includes(q)
+  );
+
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma entrada encontrada</td></tr>';
+    return;
+  }
+
+  body.innerHTML = filtered.map(e => {
+    const tags = e.tags ? e.tags.split(',').map(t => `<span class="tag">${escapeHtml(t.trim())}</span>`).join('') : '<span style="color:#d1d5db">—</span>';
+    const hasCompressed = e.compressed && e.compressed.length > 0;
+    const compTokens = hasCompressed ? Math.round(e.compressed.length / 4) : 0;
+    const compLabel = hasCompressed
+      ? `<span style="color:#1e40af;font-weight:600;">Sim</span> <span style="color:#6b7280;font-size:11px;">(~${compTokens} tok)</span>`
+      : `<span style="color:#9ca3af;">Nao</span>`;
+    const embLabel = e.has_embedding
+      ? `<span style="color:#1e40af;font-weight:600;">Sim</span>`
+      : `<span style="color:#9ca3af;">Nao</span>`;
+    return `<tr>
+      <td><strong>${escapeHtml(e.title)}</strong></td>
+      <td><div class="content-preview">${escapeHtml(e.content)}</div></td>
+      <td>${tags}</td>
+      <td>${compLabel}</td>
+      <td>${embLabel}</td>
+      <td class="toggle-sm"><input type="checkbox" ${e.enabled ? 'checked' : ''} onchange="toggleEnabled(${e.id}, this.checked)"></td>
+      <td class="actions" style="white-space:nowrap;">
+        <button class="btn btn-sm" onclick="processEntry(${e.id})" ${hasCompressed && e.has_embedding ? 'disabled title="Ja processado"' : ''}>Processar</button>
+        <div class="btn-actions-menu" style="display:inline-block;">
+          <button class="btn btn-sm btn-secondary" tabindex="0">&#8943;</button>
+          <div class="actions-dropdown">
+            <button onclick="compressEntry(${e.id})" ${hasCompressed ? 'disabled title="Ja comprimido"' : ''}>Comprimir</button>
+            ${hasCompressed ? `<button onclick="viewCompressed(${e.id})">Ver comprimido</button>` : ''}
+            <button onclick="embedEntry(${e.id})" ${e.has_embedding ? 'disabled title="Ja tem embedding"' : ''}>Embedding</button>
+            <button onclick="startEdit(${e.id})">Editar</button>
+            <button class="danger" onclick="deleteEntry(${e.id})">Excluir</button>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function saveEntry() {
+  const title = document.getElementById('entry-title').value.trim();
+  const content = document.getElementById('entry-content').value.trim();
+  const tags = document.getElementById('entry-tags').value.trim();
+
+  if (!title || !content) { toast('Titulo e conteudo sao obrigatorios'); return; }
+
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+
+  try {
+    if (editingId) {
+      const entry = entries.find(e => e.id === editingId);
+      await apiFetch('/api/knowledge/' + editingId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ title, content, tags, enabled: entry ? entry.enabled : true })
+      });
+      toast('Entrada atualizada!');
+      cancelEdit();
+    } else {
+      await apiFetch('/api/knowledge', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ title, content, tags })
+      });
+      toast('Entrada adicionada!');
+      document.getElementById('entry-title').value = '';
+      document.getElementById('entry-content').value = '';
+      document.getElementById('entry-tags').value = '';
+    }
+    await loadEntries();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+  btn.disabled = false;
+}
+
+function startEdit(id) {
+  const entry = entries.find(e => e.id === id);
+  if (!entry) return;
+  editingId = id;
+  document.getElementById('entry-title').value = entry.title;
+  document.getElementById('entry-content').value = entry.content;
+  document.getElementById('entry-tags').value = entry.tags;
+  document.getElementById('form-title-text').textContent = 'Editar Conhecimento';
+  document.getElementById('save-btn').textContent = 'Salvar';
+  document.getElementById('cancel-btn').style.display = 'inline-block';
+  document.getElementById('form-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  editingId = null;
+  document.getElementById('entry-title').value = '';
+  document.getElementById('entry-content').value = '';
+  document.getElementById('entry-tags').value = '';
+  document.getElementById('form-title-text').textContent = 'Adicionar Conhecimento';
+  document.getElementById('save-btn').textContent = 'Adicionar';
+  document.getElementById('cancel-btn').style.display = 'none';
+}
+
+async function toggleEnabled(id, enabled) {
+  const entry = entries.find(e => e.id === id);
+  if (!entry) return;
+  try {
+    await apiFetch('/api/knowledge/' + id, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ title: entry.title, content: entry.content, tags: entry.tags, enabled })
+    });
+    entry.enabled = enabled;
+    toast(enabled ? 'Entrada ativada' : 'Entrada desativada');
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function deleteEntry(id) {
+  if (!confirm('Excluir esta entrada?')) return;
+  try {
+    await apiFetch('/api/knowledge/' + id, { method: 'DELETE' });
+    toast('Entrada excluida');
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function compressEntry(id) {
+  try {
+    toast('Comprimindo...');
+    const r = await apiFetch('/api/knowledge/' + id + '/compress', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); return; }
+    const data = await r.json();
+    toast('Comprimido! (~' + data.tokens_compressed + ' tokens)');
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function compressAll() {
+  const btn = document.getElementById('compress-all-btn');
+  btn.disabled = true;
+  btn.textContent = 'Comprimindo...';
+  try {
+    const r = await apiFetch('/api/knowledge-compress', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); btn.disabled = false; btn.textContent = 'Comprimir Todos'; return; }
+    const data = await r.json();
+    toast(data.compressed + ' entrada(s) comprimida(s)');
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+  btn.disabled = false;
+  btn.textContent = 'Comprimir Todos';
+}
+
+async function embedEntry(id) {
+  try {
+    toast('Gerando embedding...');
+    const r = await apiFetch('/api/knowledge/' + id + '/embed', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); return; }
+    toast('Embedding gerado!');
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function embedAll() {
+  const btn = document.getElementById('embed-all-btn');
+  btn.disabled = true;
+  btn.textContent = 'Gerando...';
+  try {
+    const r = await apiFetch('/api/knowledge-embed', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); btn.disabled = false; btn.textContent = 'Gerar Embeddings'; return; }
+    const data = await r.json();
+    toast(data.embedded + ' embedding(s) gerado(s)');
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+  btn.disabled = false;
+  btn.textContent = 'Gerar Embeddings';
+}
+
+async function processEntry(id) {
+  try {
+    toast('Processando...');
+    const r = await apiFetch('/api/knowledge/' + id + '/process', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); return; }
+    const data = await r.json();
+    let msg = 'Processado! (~' + data.tokens_compressed + ' tokens comprimidos)';
+    if (data.warning) msg += ' (aviso: ' + data.warning + ')';
+    toast(msg);
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function processAll() {
+  const btn = document.getElementById('process-all-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processando...';
+  try {
+    const r = await apiFetch('/api/knowledge-process', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); btn.disabled = false; btn.textContent = 'Processar Todos'; return; }
+    const data = await r.json();
+    toast(data.compressed + ' comprimido(s), ' + data.embedded + ' embedding(s) gerado(s)');
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+  btn.disabled = false;
+  btn.textContent = 'Processar Todos';
+}
+
+function viewCompressed(id) {
+  const entry = entries.find(e => e.id === id);
+  if (!entry || !entry.compressed) return;
+  document.getElementById('compressed-modal-title').textContent = entry.title + ' — Versao comprimida';
+  document.getElementById('compressed-modal-content').textContent = entry.compressed;
+  document.getElementById('compressed-modal').style.display = 'flex';
+}
+
+function closeCompressedModal() {
+  document.getElementById('compressed-modal').style.display = 'none';
+}
+
+async function stripHTMLAll() {
+  if (!confirm('Remover tags HTML do conteúdo de todas as entradas? Isso irá limpar compressed e embeddings das entradas modificadas.')) return;
+  const btn = document.getElementById('strip-html-btn');
+  btn.disabled = true;
+  btn.textContent = 'Limpando...';
+  try {
+    const r = await apiFetch('/api/knowledge-strip-html', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); btn.disabled = false; btn.textContent = 'Limpar HTML'; return; }
+    const data = await r.json();
+    toast(data.cleaned + ' entrada(s) limpa(s)');
+    await loadEntries();
+  } catch(e) { toast('Erro: ' + e.message); }
+  btn.disabled = false;
+  btn.textContent = 'Limpar HTML';
+}
+
+loadEntries();
+
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

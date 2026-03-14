@@ -1,0 +1,1864 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="header">
+  <h1>Nex</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/conversas">Conversas</a>
+    <a href="/chat">Chat</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Status bar (always visible) -->
+  <div class="card" style="margin-bottom: 16px;">
+    <div id="status" class="status disconnected">
+      <span class="dot"></span>
+      <span id="status-text">Verificando...</span>
+    </div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('geral')">Geral</button>
+    <button class="tab-btn" onclick="switchTab('tools')">Tools</button>
+    <button class="tab-btn" onclick="switchTab('agentes')">Agentes</button>
+    <button class="tab-btn" id="tab-btn-usuarios" style="display:none" onclick="switchTab('usuarios')">Usuarios</button>
+  </div>
+
+  <!-- ==================== TAB: Geral ==================== -->
+  <div id="tab-geral" class="tab-panel active">
+    <div class="grid-2">
+      <div>
+        <div class="card">
+          <h2>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            WhatsApp
+          </h2>
+          <div id="qr-area"></div>
+          <button class="btn btn-whatsapp" id="reconnect-btn" onclick="reconnect()">Conectar / Gerar QR Code</button>
+          <div class="hint">Conecte seu WhatsApp escaneando o QR Code com o celular</div>
+          <button class="btn btn-danger" id="disconnect-btn" onclick="disconnect()" style="display:none;margin-top:8px;">Desconectar</button>
+          <div class="field" style="margin-top:12px;">
+            <label>Agente WhatsApp</label>
+            <select id="whatsapp_agent_id">
+              <option value="0">Automático (usa routing ou default)</option>
+            </select>
+            <div class="hint">Agente usado para mensagens do WhatsApp (prioridade sobre routing por contato)</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Modo de Resposta
+          </h2>
+          <div class="form-section">
+            <div class="form-section-title">Mensagens Privadas</div>
+            <div class="field">
+              <label>Responder a</label>
+              <select id="response_mode">
+                <option value="all">Todos (dono + contatos)</option>
+                <option value="owner">Apenas o dono do numero</option>
+                <option value="contacts">Apenas contatos externos</option>
+              </select>
+              <div class="hint">Define quem recebe respostas da IA nas conversas privadas</div>
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="form-section-title">Grupos</div>
+            <div class="toggle" style="margin:0 0 8px">
+              <input type="checkbox" id="groups_enabled">
+              <label for="groups_enabled">Responder em grupos do WhatsApp</label>
+            </div>
+            <div class="hint" style="margin-bottom:8px;">Quando ativo, o bot responde em conversas de grupo</div>
+            <input type="hidden" id="group_list">
+            <div id="group-picker" style="display:none">
+              <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;">Grupos permitidos</label>
+              <div id="group-checkboxes" style="max-height:200px;overflow-y:auto;border:1.5px solid #e0e4e8;border-radius:8px;padding:8px;background:#fafbfc;"></div>
+              <div class="hint" style="margin-top:4px;">Desmarque todos para responder em todos os grupos</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Agrupamento de Mensagens
+          </h2>
+          <div class="field-row">
+            <div class="field">
+              <label>Espera entre msgs (ms)</label>
+              <input type="number" id="debounce_ms" min="500" max="30000" step="500">
+              <div class="hint">Tempo de espera por novas mensagens antes de processar (recomendado: 3000ms)</div>
+            </div>
+            <div class="field">
+              <label>Espera maxima (ms)</label>
+              <input type="number" id="debounce_max_ms" min="1000" max="60000" step="1000">
+              <div class="hint">Tempo maximo de espera mesmo com novas mensagens (recomendado: 10000ms)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Debug
+          </h2>
+          <div class="toggle" style="margin-bottom:0;">
+            <input type="checkbox" id="debug">
+            <label for="debug">Salva logs detalhados no banco de dados</label>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h2>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Configuração da IA
+          </h2>
+          <div class="form-section">
+            <div class="form-section-title">Conexão</div>
+            <div class="field">
+              <label>Base URL</label>
+              <input type="text" id="base_url" placeholder="https://api.openai.com/v1">
+              <div class="hint">URL compativel com OpenAI API (deixe padrao para OpenAI direta)</div>
+            </div>
+            <div class="field">
+              <label>Chave API</label>
+              <input type="text" id="api_key" name="nex_api_key" placeholder="Digite para alterar..." autocomplete="off" style="-webkit-text-security:disc;">
+              <div class="hint" id="api_key_status" style="display:none;color:#1e40af;">Chave configurada — deixe em branco para manter</div>
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="form-section-title">Parâmetros</div>
+            <div class="field">
+              <label>Histórico (msgs por contato)</label>
+              <input type="number" id="max_history" min="1" max="100">
+              <div class="hint">Quantas mensagens anteriores sao enviadas como contexto para a IA</div>
+            </div>
+            <button type="button" id="test-ai-btn" onclick="testAI()" style="margin-top:8px;padding:8px 16px;background:#059669;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Testar Conexao IA
+            </button>
+            <span id="test-ai-result" style="margin-left:10px;font-size:13px;"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            Memória e Sessão
+          </h2>
+          <div class="field-row">
+            <div class="field">
+              <label>Timeout de sessao (min)</label>
+              <input type="number" id="session_timeout_min" min="5" max="1440">
+              <div class="hint">Após este tempo sem mensagens, uma nova sessão é criada</div>
+            </div>
+            <div class="field">
+              <label>Limite de contexto (tokens)</label>
+              <input type="number" id="context_budget" min="500" max="32000">
+              <div class="hint">Limite de tokens no contexto enviado para a IA (afeta custo e qualidade)</div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Fuso horário</label>
+            <div class="hint" style="margin-top:0;margin-bottom:4px;">Usado para timestamps nos logs e mensagens agendadas</div>
+            <select id="timezone">
+              <optgroup label="Brasil">
+                <option value="America/Sao_Paulo">Brasilia / Sao Paulo (BRT)</option>
+                <option value="America/Manaus">Manaus (AMT)</option>
+                <option value="America/Belem">Belem (BRT)</option>
+                <option value="America/Fortaleza">Fortaleza (BRT)</option>
+                <option value="America/Recife">Recife (BRT)</option>
+                <option value="America/Bahia">Salvador / Bahia (BRT)</option>
+                <option value="America/Cuiaba">Cuiaba (AMT)</option>
+                <option value="America/Campo_Grande">Campo Grande (AMT)</option>
+                <option value="America/Porto_Velho">Porto Velho (AMT)</option>
+                <option value="America/Rio_Branco">Rio Branco (ACT)</option>
+                <option value="America/Noronha">Fernando de Noronha (FNT)</option>
+              </optgroup>
+              <optgroup label="Americas">
+                <option value="America/New_York">Nova York (EST/EDT)</option>
+                <option value="America/Chicago">Chicago (CST/CDT)</option>
+                <option value="America/Denver">Denver (MST/MDT)</option>
+                <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
+                <option value="America/Argentina/Buenos_Aires">Buenos Aires (ART)</option>
+                <option value="America/Santiago">Santiago (CLT)</option>
+                <option value="America/Bogota">Bogota (COT)</option>
+                <option value="America/Lima">Lima (PET)</option>
+                <option value="America/Mexico_City">Cidade do Mexico (CST)</option>
+                <option value="America/Toronto">Toronto (EST/EDT)</option>
+                <option value="America/Vancouver">Vancouver (PST/PDT)</option>
+              </optgroup>
+              <optgroup label="Europa">
+                <option value="Europe/Lisbon">Lisboa (WET/WEST)</option>
+                <option value="Europe/London">Londres (GMT/BST)</option>
+                <option value="Europe/Paris">Paris (CET/CEST)</option>
+                <option value="Europe/Berlin">Berlim (CET/CEST)</option>
+                <option value="Europe/Madrid">Madrid (CET/CEST)</option>
+                <option value="Europe/Rome">Roma (CET/CEST)</option>
+                <option value="Europe/Amsterdam">Amsterdam (CET/CEST)</option>
+                <option value="Europe/Moscow">Moscou (MSK)</option>
+              </optgroup>
+              <optgroup label="Asia / Oceania">
+                <option value="Asia/Tokyo">Toquio (JST)</option>
+                <option value="Asia/Shanghai">Xangai (CST)</option>
+                <option value="Asia/Dubai">Dubai (GST)</option>
+                <option value="Asia/Kolkata">India (IST)</option>
+                <option value="Asia/Singapore">Singapura (SGT)</option>
+                <option value="Asia/Seoul">Seul (KST)</option>
+                <option value="Australia/Sydney">Sydney (AEST)</option>
+                <option value="Pacific/Auckland">Auckland (NZST)</option>
+              </optgroup>
+              <optgroup label="Africa">
+                <option value="Africa/Johannesburg">Joanesburgo (SAST)</option>
+                <option value="Africa/Lagos">Lagos (WAT)</option>
+                <option value="Africa/Cairo">Cairo (EET)</option>
+                <option value="Africa/Luanda">Luanda (WAT)</option>
+                <option value="Africa/Maputo">Maputo (CAT)</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="btn" id="save-btn-geral" onclick="saveConfig()">Salvar Configuração</button>
+  </div>
+
+  <!-- ==================== TAB: Seguranca (removed - now per-agent) ==================== -->
+  <!-- ==================== TAB: Usuarios ==================== -->
+  <div id="tab-usuarios" class="tab-panel">
+
+    <!-- Users management (admin only) -->
+    <div class="card" id="users-card" style="display:none">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Usuarios
+      </h2>
+      <div id="users-list" style="margin-bottom:14px;"></div>
+      <details id="user-form-details">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;margin-bottom:12px;">+ Novo Usuario</summary>
+        <div class="field-row">
+          <div class="field"><label>Nome de usuario</label><input type="text" id="new-user-name" placeholder="minimo 3 caracteres"></div>
+          <div class="field"><label>Senha</label><input type="password" id="new-user-pass" placeholder="minimo 6 caracteres"></div>
+          <div class="field"><label>Papel</label>
+            <select id="new-user-role"><option value="admin">admin</option><option value="user" selected>user</option></select>
+            <div class="hint">Admin: acesso total. User: sem acesso a config e gerenciamento</div>
+          </div>
+        </div>
+        <button class="btn" onclick="createUser()" style="margin-top:8px;">Criar Usuario</button>
+      </details>
+    </div>
+
+    <!-- Change own password (visible to all logged-in users) -->
+    <div class="card" id="my-password-card" style="display:none">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Minha Senha
+      </h2>
+      <div class="field"><label>Senha atual</label><input type="password" id="my-current-pass"></div>
+      <div class="field"><label>Nova senha</label><input type="password" id="my-new-pass" placeholder="minimo 6 caracteres"></div>
+      <div class="field"><label>Confirmar nova senha</label><input type="password" id="my-confirm-pass"></div>
+      <button class="btn" onclick="changeMyPassword()">Alterar Senha</button>
+    </div>
+
+  </div>
+
+
+  <!-- ==================== TAB: Tools ==================== -->
+  <div id="tab-tools" class="tab-panel">
+    <div class="card">
+      <div id="tools-list" style="display:none;">
+        <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;">Ferramentas disponiveis</label>
+        <div id="tools-list-items" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+      <div class="hint">Function calling (tools_enabled, rounds, timeout) agora e configurado por agente na aba Agentes.</div>
+    </div>
+
+    <div class="card">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+        Servidor MCP
+      </h2>
+      <div class="toggle">
+        <input type="checkbox" id="mcp_server_enabled">
+        <label for="mcp_server_enabled">Expor ferramentas via protocolo MCP (SSE)</label>
+      </div>
+      <div class="field">
+        <label>Token de acesso (Bearer)</label>
+        <input type="text" id="mcp_server_token" placeholder="Vazio = sem autenticacao">
+        <div class="hint">Clientes MCP devem enviar Authorization: Bearer &lt;token&gt;</div>
+      </div>
+      <div class="hint" style="margin-top:8px;">Endpoint: <code>/mcp/sse</code> — Requer reinicio para ativar/desativar</div>
+    </div>
+
+    <button class="btn" onclick="saveConfig()">Salvar Configuração</button>
+
+    <!-- Custom Tools (APIs Personalizadas) -->
+    <div class="card" style="margin-top:16px;">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        APIs Personalizadas
+      </h2>
+      <div id="custom-tools-list" style="margin-bottom:14px;"></div>
+      <details id="custom-tool-form-details">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;margin-bottom:12px;">+ Adicionar API</summary>
+        <div id="custom-tool-form">
+          <input type="hidden" id="ct-edit-id" value="">
+          <div class="field-row">
+            <div class="field">
+              <label>Nome (identificador)</label>
+              <input type="text" id="ct-name" placeholder="buscar_cep" pattern="[a-z][a-z0-9_]*">
+              <div class="hint">Letras minusculas, numeros e _ (ex: buscar_cep)</div>
+            </div>
+            <div class="field">
+              <label>Metodo</label>
+              <select id="ct-method"><option value="GET">GET</option><option value="POST">POST</option></select>
+            </div>
+          </div>
+          <div class="field">
+            <label>Descricao</label>
+            <textarea id="ct-description" rows="2" placeholder="Busca endereco por CEP"></textarea>
+          </div>
+          <div class="field">
+            <label>URL (use &#123;&#123;param&#125;&#125; para parametros)</label>
+            <input type="text" id="ct-url" placeholder="https://viacep.com.br/ws/&#123;&#123;cep&#125;&#125;/json/">
+            <div class="hint">Use &#123;&#123;parametro&#125;&#125; para valores dinâmicos na URL</div>
+          </div>
+          <div class="field">
+            <label>Cabecalhos (JSON)</label>
+            <textarea id="ct-headers" rows="2" placeholder='{"Authorization": "Bearer xxx"}'>{}</textarea>
+            <div class="hint">JSON com headers HTTP extras. Ex: {"Authorization": "Bearer xxx"}</div>
+          </div>
+          <div class="field" id="ct-body-field" style="display:none;">
+            <label>Corpo da requisicao (para POST, use &#123;&#123;param&#125;&#125;)</label>
+            <textarea id="ct-body" rows="3" placeholder='{"query": "&#123;&#123;termo&#125;&#125;"}'></textarea>
+          </div>
+          <div class="field">
+            <label>Parametros</label>
+            <div id="ct-params-list"></div>
+            <button type="button" onclick="addCtParam()" style="margin-top:6px;padding:4px 12px;font-size:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer;color:#1e40af;">+ Parametro</button>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Caminho na resposta (dot-notation)</label>
+              <input type="text" id="ct-response-path" placeholder="data.result">
+              <div class="hint">Caminho dot-notation para extrair resposta. Ex: data.items</div>
+            </div>
+            <div class="field">
+              <label>Limite de bytes</label>
+              <input type="number" id="ct-max-bytes" value="10000" min="1000" max="100000">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn" onclick="saveCustomTool()" style="flex:1;">Salvar API</button>
+            <button class="btn" onclick="testCustomTool()" style="flex:1;background:linear-gradient(135deg,#6366f1,#818cf8);">Testar</button>
+          </div>
+          <div id="ct-test-result" style="display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;font-size:13px;white-space:pre-wrap;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </details>
+    </div>
+
+    <!-- MCP Servers -->
+    <div class="card" style="margin-top:16px;">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
+        Servidores MCP
+      </h2>
+      <div id="mcp-servers-list" style="margin-bottom:14px;"></div>
+      <details id="mcp-form-details">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;margin-bottom:12px;">+ Adicionar Servidor MCP</summary>
+        <div id="mcp-form">
+          <input type="hidden" id="mcp-edit-id" value="">
+          <div class="field">
+            <label>Nome</label>
+            <input type="text" id="mcp-name" placeholder="meu-servidor">
+          </div>
+          <div class="field">
+            <label>URL (endpoint SSE)</label>
+            <input type="text" id="mcp-url" placeholder="http://localhost:3000/sse">
+            <div class="hint">Endpoint SSE do servidor MCP remoto</div>
+          </div>
+          <div class="field">
+            <label>API Key (opcional)</label>
+            <input type="password" id="mcp-api-key" placeholder="Token de autenticacao" autocomplete="new-password">
+            <div class="hint">Enviado como header Authorization: Bearer</div>
+          </div>
+          <button class="btn" onclick="saveMCPServer()">Salvar Servidor</button>
+        </div>
+      </details>
+    </div>
+
+    <!-- External Databases -->
+    <div class="card" style="margin-top:16px;">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        Bancos de Dados Externos
+      </h2>
+      <div id="ext-db-list" style="margin-bottom:14px;"></div>
+      <details id="edb-form-details">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;margin-bottom:12px;">+ Adicionar Banco de Dados</summary>
+        <div id="edb-form">
+          <input type="hidden" id="edb-edit-id" value="">
+          <div class="field">
+            <label>Nome (identificador unico)</label>
+            <input type="text" id="edb-name" placeholder="meu_banco">
+          </div>
+          <div class="field">
+            <label>Driver</label>
+            <select id="edb-driver" onchange="updateEDBDefaults()">
+              <option value="postgres">PostgreSQL</option>
+              <option value="mysql">MySQL</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <div class="field" style="flex:3;">
+              <label>Host</label>
+              <input type="text" id="edb-host" value="localhost">
+            </div>
+            <div class="field" style="flex:1;">
+              <label>Porta</label>
+              <input type="number" id="edb-port" value="5432">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <div class="field" style="flex:1;">
+              <label>Usuario</label>
+              <input type="text" id="edb-username" placeholder="postgres">
+            </div>
+            <div class="field" style="flex:1;">
+              <label>Senha</label>
+              <input type="password" id="edb-password" placeholder="Senha do banco" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="field">
+            <label>Nome do Banco</label>
+            <input type="text" id="edb-dbname" placeholder="meu_database">
+          </div>
+          <div style="display:flex;gap:8px;">
+            <div class="field" style="flex:1;">
+              <label>SSL</label>
+              <select id="edb-ssl">
+                <option value="disable">Desabilitado</option>
+                <option value="require">Obrigatorio</option>
+                <option value="preferred">Preferido</option>
+              </select>
+            </div>
+            <div class="field" style="flex:1;">
+              <label>Max Linhas</label>
+              <input type="number" id="edb-maxrows" value="100" min="1" max="1000">
+              <div class="hint">Limite de linhas retornadas em consultas SQL</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn" onclick="saveExtDB()">Salvar</button>
+            <button class="btn" style="background:#f0fdf4;color:#1e40af;border:1px solid #bbf7d0;" onclick="testExtDB()">Testar Conexao</button>
+          </div>
+          <div id="edb-test-result" style="display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;font-size:13px;"></div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: Agentes ==================== -->
+  <div id="tab-agentes" class="tab-panel">
+    <div class="card">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Agentes de IA
+      </h2>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:14px;">
+        Crie agentes com personalidades diferentes. Atribua-os a contatos na tela de Conversas.
+      </p>
+      <div id="agents-list"></div>
+      <details id="agent-form-details">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;margin-bottom:12px;">+ Adicionar Agente</summary>
+        <div id="agent-form">
+          <input type="hidden" id="ag-edit-id" value="">
+          <div class="form-section">
+            <div class="form-section-title">Identidade do Agente</div>
+            <div class="field-row">
+              <div class="field">
+                <label>Nome</label>
+                <input type="text" id="ag-name" placeholder="atendimento">
+                <div class="hint">Identificador unico do agente</div>
+              </div>
+              <div class="field">
+                <label>Modelo</label>
+                <input type="text" id="ag-model" placeholder="gpt-4.1-mini" value="gpt-4.1-mini">
+              </div>
+            </div>
+            <div class="field">
+              <label>Descricao</label>
+              <input type="text" id="ag-description" placeholder="Agente de atendimento ao cliente">
+            </div>
+            <div class="field">
+              <label>System Prompt</label>
+              <textarea id="ag-system-prompt" rows="6" placeholder="Voce e um atendente profissional..."></textarea>
+            </div>
+            <div class="field">
+              <label>User Prompt (opcional)</label>
+              <textarea id="ag-user-prompt" rows="3" placeholder="Responda sempre em portugues formal."></textarea>
+              <div class="hint">Prefixo adicionado a cada mensagem recebida</div>
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="form-section-title">Configuração do Modelo</div>
+            <div class="field-row">
+              <div class="field">
+                <label>Max Tokens</label>
+                <input type="number" id="ag-max-tokens" value="1024" min="50" max="32000">
+              </div>
+            </div>
+            <div class="field">
+              <label>Base URL (opcional)</label>
+              <input type="text" id="ag-base-url" placeholder="https://api.openai.com/v1">
+              <div class="hint">Vazio = usa config global</div>
+            </div>
+            <div class="field">
+              <label>API Key (opcional)</label>
+              <input type="password" id="ag-api-key" placeholder="Vazio = usa config global" autocomplete="new-password">
+              <div class="hint">Vazio = usa config global</div>
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="form-section-title">Encadeamento de Agentes</div>
+            <div class="field">
+              <label>Encadear para (opcional)</label>
+              <select id="ag-chain-to"><option value="0">Nenhum</option></select>
+              <div class="hint">Resposta deste agente sera passada como contexto para o agente selecionado</div>
+            </div>
+            <div class="field">
+              <label>Condicao de encadeamento</label>
+              <input type="text" id="ag-chain-condition" placeholder="Vazio = sempre encadeia">
+              <div class="hint">Se preenchido, so encadeia se a resposta contiver este texto</div>
+            </div>
+          </div>
+          <div class="field">
+            <label>RAG Tags (filtro de conhecimento)</label>
+            <input type="hidden" id="ag-rag-tags">
+            <div id="ag-rag-tags-wrap" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1.5px solid #e0e4e8;border-radius:8px;background:#fafbfc;min-height:42px;cursor:pointer;">
+              <span id="ag-rag-tags-placeholder" style="color:#b0b8c1;font-size:13px;">Clique para selecionar tags...</span>
+            </div>
+            <div id="ag-rag-tags-dropdown" style="display:none;border:1.5px solid #e0e4e8;border-top:none;border-radius:0 0 8px 8px;background:white;max-height:180px;overflow-y:auto;"></div>
+            <div class="hint">Vazio = busca em toda a base de conhecimento</div>
+          </div>
+
+          <!-- RAG Settings -->
+          <details style="margin-top:12px;border:1px solid #e0e4e8;border-radius:8px;padding:12px;">
+            <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;">RAG (Base de Conhecimento)</summary>
+            <div style="margin-top:10px;">
+              <div class="toggle">
+                <input type="checkbox" id="ag-rag-enabled">
+                <label for="ag-rag-enabled">Busca na base de conhecimento antes de responder</label>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>Resultados por busca</label>
+                  <input type="number" id="ag-rag-max-results" min="1" max="10" value="3">
+                </div>
+                <div class="field">
+                  <label>Limite de tokens RAG</label>
+                  <input type="number" id="ag-rag-max-tokens" min="100" max="4000" step="50" value="500">
+                </div>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="ag-rag-compressed">
+                <label for="ag-rag-compressed">Usar versao comprimida</label>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="ag-rag-embeddings">
+                <label for="ag-rag-embeddings">Busca semantica por embeddings</label>
+              </div>
+              <div class="field">
+                <label>Modelo de Embedding</label>
+                <input type="text" id="ag-rag-embedding-model" placeholder="text-embedding-3-small">
+              </div>
+            </div>
+          </details>
+
+          <!-- Tools Settings -->
+          <details style="margin-top:8px;border:1px solid #e0e4e8;border-radius:8px;padding:12px;">
+            <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;">Tools (Function Calling)</summary>
+            <div style="margin-top:10px;">
+              <div class="toggle">
+                <input type="checkbox" id="ag-tools-enabled">
+                <label for="ag-tools-enabled">Permitir IA executar ferramentas</label>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>Max rounds por mensagem</label>
+                  <input type="number" id="ag-tools-max-rounds" min="1" max="10" value="3">
+                </div>
+                <div class="field">
+                  <label>Timeout por ferramenta (s)</label>
+                  <input type="number" id="ag-tool-timeout-sec" min="5" max="300" value="30">
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Guardrails Settings -->
+          <details style="margin-top:8px;border:1px solid #e0e4e8;border-radius:8px;padding:12px;">
+            <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;">Seguranca (Guardrails)</summary>
+            <div style="margin-top:10px;">
+              <div class="field">
+                <label>Modo de filtro de telefone</label>
+                <select id="ag-guard-phone-mode">
+                  <option value="off">Desligado</option>
+                  <option value="whitelist">Whitelist</option>
+                  <option value="blacklist">Blacklist</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Lista de telefones (virgula)</label>
+                <input type="text" id="ag-guard-phone-list" placeholder="5511999999999, 5521888888888">
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>Max entrada (chars, 0=sem)</label>
+                  <input type="number" id="ag-guard-max-input" min="0" max="50000" value="2000">
+                </div>
+                <div class="field">
+                  <label>Max saida (chars, 0=sem)</label>
+                  <input type="number" id="ag-guard-max-output" min="0" max="50000" value="3000">
+                </div>
+              </div>
+              <div class="field">
+                <label>Padroes bloqueados na entrada (um por linha)</label>
+                <textarea id="ag-guard-blocked-input" rows="2"></textarea>
+              </div>
+              <div class="field">
+                <label>Padroes bloqueados na saida (um por linha)</label>
+                <textarea id="ag-guard-blocked-output" rows="2"></textarea>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="ag-guard-block-injection">
+                <label for="ag-guard-block-injection">Bloquear prompt injection</label>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="ag-guard-block-pii">
+                <label for="ag-guard-block-pii">Bloquear PII (master)</label>
+              </div>
+              <div style="padding-left:24px;border-left:2px solid rgba(99,102,241,0.15);">
+                <div class="hint" style="margin-bottom:6px;">Selecione quais tipos de dados pessoais devem ser filtrados</div>
+                <div class="toggle">
+                  <input type="checkbox" id="ag-guard-block-pii-phone">
+                  <label for="ag-guard-block-pii-phone">Telefone</label>
+                </div>
+                <div class="toggle">
+                  <input type="checkbox" id="ag-guard-block-pii-email">
+                  <label for="ag-guard-block-pii-email">Email</label>
+                </div>
+                <div class="toggle">
+                  <input type="checkbox" id="ag-guard-block-pii-cpf">
+                  <label for="ag-guard-block-pii-cpf">CPF</label>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div class="toggle" style="margin-top:8px;">
+            <input type="checkbox" id="ag-knowledge-extract">
+            <label for="ag-knowledge-extract">Extrair conhecimento automaticamente ao fim de cada sessao</label>
+          </div>
+
+          <button class="btn" style="margin-top:12px;" onclick="saveAgent()">Salvar Agente</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="card" style="background:#f8fafc;border:1px dashed #cbd5e1;">
+      <h2 style="border:none;margin-bottom:8px;padding-bottom:0;">Exemplos de agentes</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;">
+        <div style="background:white;padding:12px;border-radius:8px;border:1px solid #e2e8f0;">
+          <strong style="color:#1e293b;">Atendimento</strong>
+          <div style="color:#6b7280;margin-top:4px;">Responde duvidas de clientes com tom profissional e educado. Consulta a base de conhecimento.</div>
+          <code style="font-size:11px;color:#3b82f6;display:block;margin-top:6px;">model: gpt-4.1-mini</code>
+        </div>
+        <div style="background:white;padding:12px;border-radius:8px;border:1px solid #e2e8f0;">
+          <strong style="color:#1e293b;">Vendas</strong>
+          <div style="color:#6b7280;margin-top:4px;">Agente persuasivo focado em converter leads. Apresenta produtos e fecha pedidos.</div>
+          <code style="font-size:11px;color:#3b82f6;display:block;margin-top:6px;">model: gpt-4.1</code>
+        </div>
+        <div style="background:white;padding:12px;border-radius:8px;border:1px solid #e2e8f0;">
+          <strong style="color:#1e293b;">Suporte Tecnico</strong>
+          <div style="color:#6b7280;margin-top:4px;">Diagnostica problemas tecnicos passo a passo. Linguagem clara e objetiva.</div>
+          <code style="font-size:11px;color:#3b82f6;display:block;margin-top:6px;">model: gpt-4.1-mini</code>
+        </div>
+        <div style="background:white;padding:12px;border-radius:8px;border:1px solid #e2e8f0;">
+          <strong style="color:#1e293b;">Assistente Pessoal</strong>
+          <div style="color:#6b7280;margin-top:4px;">Ajuda com tarefas do dia-a-dia, lembretes e organizacao. Tom informal e amigavel.</div>
+          <code style="font-size:11px;color:#3b82f6;display:block;margin-top:6px;">model: gpt-4.1-nano</code>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// Auth state
+let authUser = null;
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { toast('Sem permissao'); return null; }
+  return r;
+}
+
+async function doLogout() {
+  await fetch('/api/logout', {method:'POST'});
+  location.href = '/login';
+}
+
+const fields = ['base_url','api_key','max_history',
+  'debounce_ms','debounce_max_ms','session_timeout_min','context_budget','timezone','debug',
+  'mcp_server_enabled','mcp_server_token',
+  'response_mode','groups_enabled','group_list','whatsapp_agent_id'];
+const boolFields = ['debug','groups_enabled','mcp_server_enabled'];
+const intFields = ['max_history','debounce_ms','debounce_max_ms','session_timeout_min','context_budget','whatsapp_agent_id'];
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function testAI() {
+  const btn = document.getElementById('test-ai-btn');
+  const result = document.getElementById('test-ai-result');
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  result.textContent = 'Testando...';
+  result.style.color = '#64748b';
+  try {
+    const resp = await fetch('/api/test-ai', {method:'POST'});
+    const data = await resp.json();
+    if (data.ok) {
+      result.textContent = 'Conectado — modelo: ' + data.model;
+      result.style.color = '#059669';
+    } else {
+      result.textContent = 'Erro: ' + data.error;
+      result.style.color = '#dc2626';
+    }
+  } catch(e) {
+    result.textContent = 'Erro de conexao';
+    result.style.color = '#dc2626';
+  }
+  btn.disabled = false;
+  btn.style.opacity = '1';
+}
+
+async function loadConfig() {
+  try {
+    const r = await apiFetch('/api/config');
+    if (!r) return;
+    const cfg = await r.json();
+    for (const f of fields) {
+      const el = document.getElementById(f);
+      if (!el) continue;
+      if (boolFields.includes(f)) { el.checked = cfg[f]; continue; }
+      if (f === 'api_key') {
+        el.value = '';
+        const status = document.getElementById('api_key_status');
+        status.style.display = cfg.api_key_set ? 'block' : 'none';
+        // Clear again after delay to defeat browser autofill
+        setTimeout(() => { el.value = ''; }, 200);
+        continue;
+      }
+      el.value = cfg[f] ?? '';
+    }
+    // Render tools list
+    const toolsList = cfg.tools_list || [];
+    const container = document.getElementById('tools-list');
+    const items = document.getElementById('tools-list-items');
+    if (toolsList.length > 0) {
+      container.style.display = 'block';
+      items.innerHTML = toolsList
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(t => `<span title="${t.description}" style="display:inline-block;padding:4px 10px;background:#f0fdf4;color:#1e40af;border:1px solid #bbf7d0;border-radius:6px;font-size:12px;font-weight:500;cursor:default;">${t.name}</span>`)
+        .join('');
+    }
+    // Populate WhatsApp agent select
+    const waAgentSel = document.getElementById('whatsapp_agent_id');
+    if (waAgentSel && waAgentSel.options.length <= 1) {
+      try {
+        const ar = await apiFetch('/api/agents');
+        if (ar) {
+          const agents = await ar.json();
+          agents.filter(a => a.enabled).forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = a.id;
+            opt.textContent = a.name;
+            waAgentSel.appendChild(opt);
+          });
+        }
+      } catch(e) {}
+    }
+    waAgentSel.value = cfg.whatsapp_agent_id || 0;
+    // Load groups for picker
+    loadGroupPicker(cfg.group_list || '');
+  } catch(e) { console.error('load config:', e); }
+}
+
+async function loadGroupPicker(savedList) {
+  const picker = document.getElementById('group-picker');
+  const container = document.getElementById('group-checkboxes');
+  try {
+    const r = await apiFetch('/api/groups');
+    if (!r) return;
+    const data = await r.json();
+    const groups = data.groups || [];
+    if (groups.length === 0) {
+      picker.style.display = 'none';
+      return;
+    }
+    picker.style.display = 'block';
+    const selected = savedList ? savedList.split(',').map(s => s.trim()).filter(Boolean) : [];
+    groups.sort((a, b) => a.name.localeCompare(b.name));
+    container.innerHTML = groups.map(g => {
+      const checked = selected.includes(g.jid) ? 'checked' : '';
+      const name = g.name || g.jid;
+      return `<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;font-size:13px;color:#374151;border-bottom:1px solid #f3f4f6;">
+        <input type="checkbox" value="${g.jid}" ${checked} onchange="updateGroupList()" style="width:16px;height:16px;accent-color:#334155;flex-shrink:0;">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</span>
+        <span style="font-size:10px;color:#9ca3af;flex-shrink:0;">${g.jid}</span>
+      </label>`;
+    }).join('');
+  } catch(e) { picker.style.display = 'none'; }
+}
+
+function updateGroupList() {
+  const checks = document.querySelectorAll('#group-checkboxes input[type="checkbox"]:checked');
+  const jids = Array.from(checks).map(c => c.value);
+  document.getElementById('group_list').value = jids.join(',');
+}
+
+async function saveConfig() {
+  const btns = document.querySelectorAll('.btn[onclick="saveConfig()"]');
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Salvando...'; });
+
+  const body = {};
+  for (const f of fields) {
+    const el = document.getElementById(f);
+    if (!el) continue;
+    if (boolFields.includes(f)) { body[f] = el.checked; continue; }
+    if (f === 'api_key') {
+      if (el.value) body[f] = el.value;
+      continue;
+    }
+    const v = el.value;
+    if (intFields.includes(f)) {
+      body[f] = parseInt(v) || 0;
+    } else {
+      body[f] = v;
+    }
+  }
+
+  try {
+    const r = await apiFetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (!r) return;
+    if (r.ok) {
+      toast('Configuração salva!');
+      document.getElementById('api_key').value = '';
+      loadConfig();
+    } else {
+      toast('Erro ao salvar: ' + await r.text());
+    }
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+  btns.forEach(b => { b.disabled = false; b.textContent = 'Salvar Configuração'; });
+}
+
+async function reconnect() {
+  const btn = document.getElementById('reconnect-btn');
+  btn.disabled = true;
+  btn.textContent = 'Conectando...';
+  try {
+    await apiFetch('/api/reconnect', { method: 'POST' });
+    toast('Aguardando QR Code...');
+  } catch(e) {
+    toast('Erro ao conectar: ' + e.message);
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Conectar / Gerar QR Code'; }, 3000);
+}
+
+async function disconnect() {
+  const btn = document.getElementById('disconnect-btn');
+  btn.disabled = true;
+  btn.textContent = 'Desconectando...';
+  try {
+    await apiFetch('/api/disconnect', { method: 'POST' });
+    toast('WhatsApp desconectado');
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Desconectar';
+}
+
+let lastQR = '';
+async function pollStatus() {
+  try {
+    const r = await apiFetch('/api/status');
+    if (!r) return;
+    const s = await r.json();
+    const el = document.getElementById('status');
+    const txt = document.getElementById('status-text');
+    const qrArea = document.getElementById('qr-area');
+    const btn = document.getElementById('reconnect-btn');
+    const dcBtn = document.getElementById('disconnect-btn');
+
+    if (s.connected) {
+      el.className = 'status connected';
+      txt.textContent = 'Conectado como +' + s.phone;
+      qrArea.innerHTML = '';
+      lastQR = '';
+      btn.style.display = 'none';
+      dcBtn.style.display = 'block';
+    } else if (s.qr_code) {
+      el.className = 'status disconnected';
+      txt.textContent = 'Escaneie o QR Code com o WhatsApp';
+      btn.style.display = 'none';
+      dcBtn.style.display = 'none';
+      if (s.qr_code !== lastQR) {
+        lastQR = s.qr_code;
+        qrArea.innerHTML = `<img src="${s.qr_code}" alt="QR Code WhatsApp" style="display:block;margin:16px auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);" width="256" height="256">`;
+      }
+    } else {
+      el.className = 'status disconnected';
+      txt.textContent = 'Desconectado';
+      qrArea.innerHTML = '';
+      lastQR = '';
+      btn.style.display = 'block';
+      dcBtn.style.display = 'none';
+    }
+  } catch(e) { console.error('poll:', e); }
+}
+
+loadConfig();
+pollStatus();
+setInterval(pollStatus, 2000);
+
+// --- Custom Tools ---
+async function loadCustomTools() {
+  try {
+    const r = await apiFetch('/api/custom-tools');
+    if (!r) return;
+    const tools = await r.json();
+    const container = document.getElementById('custom-tools-list');
+    if (tools.length === 0) {
+      container.innerHTML = '<div style="font-size:13px;color:#9ca3af;">Nenhuma API personalizada cadastrada.</div>';
+      return;
+    }
+    container.innerHTML = tools.map(t => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin-bottom:6px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <div>
+          <span style="font-weight:600;font-size:13px;color:#1a1a2e;">${esc(t.name)}</span>
+          <span style="display:inline-block;padding:2px 6px;background:${t.enabled?'#dcfce7':'#fef2f2'};color:${t.enabled?'#166534':'#991b1b'};border-radius:4px;font-size:10px;margin-left:6px;">${t.enabled?'ON':'OFF'}</span>
+          <span style="display:inline-block;padding:2px 6px;background:#dbeafe;color:#1e40af;border-radius:4px;font-size:10px;margin-left:4px;">${esc(t.method)}</span>
+          <div style="font-size:12px;color:#6b7280;margin-top:2px;">${esc(t.description)}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button onclick="editCustomTool(${t.id})" style="padding:4px 10px;font-size:11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;color:#0369a1;">Editar</button>
+          <button onclick="deleteCustomTool(${t.id})" style="padding:4px 10px;font-size:11px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;">Excluir</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { console.error('load custom tools:', e); }
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+let ctParamCount = 0;
+function addCtParam(name, type_, desc, req) {
+  const list = document.getElementById('ct-params-list');
+  const idx = ctParamCount++;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;';
+  div.innerHTML = `
+    <input type="text" placeholder="nome" value="${name||''}" style="flex:2;padding:6px 8px;border:1px solid #e0e4e8;border-radius:6px;font-size:12px;" data-ct-param-name="${idx}">
+    <select style="flex:1;padding:6px 4px;border:1px solid #e0e4e8;border-radius:6px;font-size:12px;" data-ct-param-type="${idx}">
+      <option value="string" ${type_==='string'||!type_?'selected':''}>string</option>
+      <option value="number" ${type_==='number'?'selected':''}>number</option>
+      <option value="integer" ${type_==='integer'?'selected':''}>integer</option>
+      <option value="boolean" ${type_==='boolean'?'selected':''}>boolean</option>
+    </select>
+    <input type="text" placeholder="descricao" value="${desc||''}" style="flex:3;padding:6px 8px;border:1px solid #e0e4e8;border-radius:6px;font-size:12px;" data-ct-param-desc="${idx}">
+    <label style="font-size:11px;display:flex;align-items:center;gap:2px;white-space:nowrap;"><input type="checkbox" data-ct-param-req="${idx}" ${req?'checked':''}> Obrig.</label>
+    <button onclick="this.parentElement.remove()" style="padding:2px 8px;font-size:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;">x</button>
+  `;
+  list.appendChild(div);
+}
+
+function collectCtParams() {
+  const params = [];
+  document.querySelectorAll('[data-ct-param-name]').forEach(el => {
+    const idx = el.dataset.ctParamName;
+    const name = el.value.trim();
+    if (!name) return;
+    params.push({
+      name: name,
+      type: document.querySelector(`[data-ct-param-type="${idx}"]`).value,
+      description: document.querySelector(`[data-ct-param-desc="${idx}"]`).value.trim(),
+      required: document.querySelector(`[data-ct-param-req="${idx}"]`).checked
+    });
+  });
+  return params;
+}
+
+function collectCtData() {
+  return {
+    name: document.getElementById('ct-name').value.trim(),
+    description: document.getElementById('ct-description').value.trim(),
+    method: document.getElementById('ct-method').value,
+    url_template: document.getElementById('ct-url').value.trim(),
+    headers: document.getElementById('ct-headers').value.trim() || '{}',
+    body_template: document.getElementById('ct-body').value.trim(),
+    parameters: JSON.stringify(collectCtParams()),
+    response_path: document.getElementById('ct-response-path').value.trim(),
+    max_bytes: parseInt(document.getElementById('ct-max-bytes').value) || 10000,
+    enabled: 1
+  };
+}
+
+function resetCtForm() {
+  document.getElementById('ct-edit-id').value = '';
+  document.getElementById('ct-name').value = '';
+  document.getElementById('ct-description').value = '';
+  document.getElementById('ct-method').value = 'GET';
+  document.getElementById('ct-url').value = '';
+  document.getElementById('ct-headers').value = '{}';
+  document.getElementById('ct-body').value = '';
+  document.getElementById('ct-params-list').innerHTML = '';
+  document.getElementById('ct-response-path').value = '';
+  document.getElementById('ct-max-bytes').value = '10000';
+  document.getElementById('ct-test-result').style.display = 'none';
+  ctParamCount = 0;
+}
+
+async function saveCustomTool() {
+  const data = collectCtData();
+  const editId = document.getElementById('ct-edit-id').value;
+  try {
+    let r;
+    if (editId) {
+      r = await apiFetch('/api/custom-tools/' + editId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    } else {
+      r = await apiFetch('/api/custom-tools', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    }
+    if (!r) return;
+    if (r.ok) {
+      toast(editId ? 'API atualizada!' : 'API criada!');
+      resetCtForm();
+      document.getElementById('custom-tool-form-details').removeAttribute('open');
+      loadCustomTools();
+      loadConfig();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function testCustomTool() {
+  const editId = document.getElementById('ct-edit-id').value;
+  const resultDiv = document.getElementById('ct-test-result');
+  if (!editId) {
+    // Save first, then test
+    const data = collectCtData();
+    try {
+      const r = await apiFetch('/api/custom-tools', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+      if (!r.ok) { toast('Salve primeiro: ' + await r.text()); return; }
+      const res = await r.json();
+      document.getElementById('ct-edit-id').value = res.id;
+      loadCustomTools();
+    } catch(e) { toast('Erro: ' + e.message); return; }
+  }
+  const id = document.getElementById('ct-edit-id').value;
+  const params = collectCtParams();
+  const args = {};
+  params.forEach(p => { args[p.name] = p.type === 'number' || p.type === 'integer' ? 0 : 'teste'; });
+
+  const testArgs = prompt('Argumentos JSON para teste:', JSON.stringify(args));
+  if (!testArgs) return;
+
+  resultDiv.style.display = 'block';
+  resultDiv.textContent = 'Testando...';
+  try {
+    const r = await apiFetch('/api/custom-tools/' + id + '/test', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ args: testArgs })
+    });
+    const res = await r.json();
+    resultDiv.textContent = res.ok ? res.result : 'Erro: ' + res.error;
+    resultDiv.style.borderColor = res.ok ? '#bbf7d0' : '#fecaca';
+  } catch(e) { resultDiv.textContent = 'Erro: ' + e.message; }
+}
+
+async function editCustomTool(id) {
+  try {
+    const r = await apiFetch('/api/custom-tools');
+    const tools = await r.json();
+    const t = tools.find(x => x.id === id);
+    if (!t) return;
+    document.getElementById('ct-edit-id').value = t.id;
+    document.getElementById('ct-name').value = t.name;
+    document.getElementById('ct-description').value = t.description;
+    document.getElementById('ct-method').value = t.method;
+    document.getElementById('ct-url').value = t.url_template;
+    document.getElementById('ct-headers').value = t.headers;
+    document.getElementById('ct-body').value = t.body_template;
+    document.getElementById('ct-response-path').value = t.response_path;
+    document.getElementById('ct-max-bytes').value = t.max_bytes;
+    document.getElementById('ct-params-list').innerHTML = '';
+    ctParamCount = 0;
+    const params = JSON.parse(t.parameters || '[]');
+    params.forEach(p => addCtParam(p.name, p.type, p.description, p.required));
+    document.getElementById('ct-test-result').style.display = 'none';
+    document.getElementById('custom-tool-form-details').open = true;
+    updateCtBodyVisibility();
+  } catch(e) { console.error(e); }
+}
+
+async function deleteCustomTool(id) {
+  if (!confirm('Excluir esta API?')) return;
+  try {
+    const r = await apiFetch('/api/custom-tools/' + id, { method: 'DELETE' });
+    if (r.ok) { toast('API excluida'); loadCustomTools(); loadConfig(); }
+    else toast('Erro: ' + await r.text());
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+function updateCtBodyVisibility() {
+  document.getElementById('ct-body-field').style.display = document.getElementById('ct-method').value === 'POST' ? 'block' : 'none';
+}
+document.getElementById('ct-method').addEventListener('change', updateCtBodyVisibility);
+
+// --- MCP Servers ---
+async function loadMCPServers() {
+  try {
+    const r = await apiFetch('/api/mcp-servers');
+    if (!r) return;
+    const servers = await r.json();
+    const container = document.getElementById('mcp-servers-list');
+    if (servers.length === 0) {
+      container.innerHTML = '<div style="font-size:13px;color:#9ca3af;">Nenhum servidor MCP configurado.</div>';
+      return;
+    }
+    container.innerHTML = servers.map(s => `
+      <div style="padding:10px 14px;margin-bottom:6px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <span style="font-weight:600;font-size:13px;color:#1a1a2e;">${esc(s.name)}</span>
+            <span style="display:inline-block;padding:2px 6px;background:${s.connected?'#dcfce7':'#fef2f2'};color:${s.connected?'#166534':'#991b1b'};border-radius:4px;font-size:10px;margin-left:6px;">${s.connected?'Conectado':'Desconectado'}</span>
+            <span style="display:inline-block;padding:2px 6px;background:#dbeafe;color:#1e40af;border-radius:4px;font-size:10px;margin-left:4px;">${s.tools.length} tools</span>
+            <div style="font-size:12px;color:#6b7280;margin-top:2px;">${esc(s.url)}</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button onclick="reconnectMCP(${s.id})" style="padding:4px 10px;font-size:11px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer;color:#1e40af;">Reconectar</button>
+            <button onclick="editMCPServer(${s.id})" style="padding:4px 10px;font-size:11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;color:#0369a1;">Editar</button>
+            <button onclick="deleteMCPServer(${s.id})" style="padding:4px 10px;font-size:11px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;">Excluir</button>
+          </div>
+        </div>
+        ${s.tools.length > 0 ? `
+        <details style="margin-top:6px;">
+          <summary style="cursor:pointer;font-size:11px;color:#6b7280;">Ver tools descobertas</summary>
+          <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">
+            ${s.tools.map(t => `<span title="${esc(t.description)}" style="display:inline-block;padding:3px 8px;background:#f0fdf4;color:#1e40af;border:1px solid #bbf7d0;border-radius:6px;font-size:11px;">${esc(t.name)}</span>`).join('')}
+          </div>
+        </details>` : ''}
+      </div>
+    `).join('');
+  } catch(e) { console.error('load mcp servers:', e); }
+}
+
+function resetMCPForm() {
+  document.getElementById('mcp-edit-id').value = '';
+  document.getElementById('mcp-name').value = '';
+  document.getElementById('mcp-url').value = '';
+  document.getElementById('mcp-api-key').value = '';
+}
+
+async function saveMCPServer() {
+  const data = {
+    name: document.getElementById('mcp-name').value.trim(),
+    url: document.getElementById('mcp-url').value.trim(),
+    api_key: document.getElementById('mcp-api-key').value
+  };
+  const editId = document.getElementById('mcp-edit-id').value;
+  try {
+    let r;
+    if (editId) {
+      r = await apiFetch('/api/mcp-servers/' + editId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({...data, enabled: true}) });
+    } else {
+      r = await apiFetch('/api/mcp-servers', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    }
+    if (!r) return;
+    if (r.ok) {
+      const res = await r.json();
+      if (res.error) toast('Salvo, mas erro ao conectar: ' + res.error);
+      else toast(editId ? 'Servidor atualizado!' : 'Servidor adicionado!');
+      resetMCPForm();
+      document.getElementById('mcp-form-details').removeAttribute('open');
+      loadMCPServers();
+      loadConfig();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function reconnectMCP(id) {
+  toast('Reconectando...');
+  try {
+    const r = await apiFetch('/api/mcp-servers/' + id + '/reconnect', { method: 'POST' });
+    const res = await r.json();
+    if (res.ok) { toast('Reconectado!'); loadMCPServers(); loadConfig(); }
+    else toast('Erro: ' + res.error);
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function editMCPServer(id) {
+  try {
+    const r = await apiFetch('/api/mcp-servers');
+    const servers = await r.json();
+    const s = servers.find(x => x.id === id);
+    if (!s) return;
+    document.getElementById('mcp-edit-id').value = s.id;
+    document.getElementById('mcp-name').value = s.name;
+    document.getElementById('mcp-url').value = s.url;
+    document.getElementById('mcp-api-key').value = '';
+    document.getElementById('mcp-form-details').open = true;
+  } catch(e) { console.error(e); }
+}
+
+async function deleteMCPServer(id) {
+  if (!confirm('Excluir este servidor MCP?')) return;
+  try {
+    const r = await apiFetch('/api/mcp-servers/' + id, { method: 'DELETE' });
+    if (r.ok) { toast('Servidor excluido'); loadMCPServers(); loadConfig(); }
+    else toast('Erro: ' + await r.text());
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// --- External Databases ---
+async function loadExtDBs() {
+  try {
+    const r = await apiFetch('/api/ext-databases');
+    if (!r) return;
+    const dbs = await r.json();
+    const container = document.getElementById('ext-db-list');
+    if (dbs.length === 0) {
+      container.innerHTML = '<div style="font-size:13px;color:#9ca3af;">Nenhum banco externo configurado.</div>';
+      return;
+    }
+    container.innerHTML = dbs.map(d => `
+      <div style="padding:10px 14px;margin-bottom:6px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <span style="font-weight:600;font-size:13px;color:#1a1a2e;">${esc(d.name)}</span>
+            <span style="display:inline-block;padding:2px 6px;background:${d.driver==='postgres'?'#dbeafe':'#fef3c7'};color:${d.driver==='postgres'?'#1e40af':'#92400e'};border-radius:4px;font-size:10px;margin-left:6px;">${d.driver==='postgres'?'PG':'MY'}</span>
+            <span style="display:inline-block;padding:2px 6px;background:${d.connected?'#dcfce7':'#fef2f2'};color:${d.connected?'#166534':'#991b1b'};border-radius:4px;font-size:10px;margin-left:4px;">${d.connected?'Conectado':'Desconectado'}</span>
+            <div style="font-size:12px;color:#6b7280;margin-top:2px;">${esc(d.host)}:${d.port}/${esc(d.dbname)}</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button onclick="reconnectExtDB(${d.id})" style="padding:4px 10px;font-size:11px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer;color:#1e40af;">Reconectar</button>
+            <button onclick="editExtDB(${d.id})" style="padding:4px 10px;font-size:11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;color:#0369a1;">Editar</button>
+            <button onclick="deleteExtDB(${d.id})" style="padding:4px 10px;font-size:11px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;">Excluir</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { console.error('load ext dbs:', e); }
+}
+
+function resetEDBForm() {
+  document.getElementById('edb-edit-id').value = '';
+  document.getElementById('edb-name').value = '';
+  document.getElementById('edb-driver').value = 'postgres';
+  document.getElementById('edb-host').value = 'localhost';
+  document.getElementById('edb-port').value = '5432';
+  document.getElementById('edb-username').value = '';
+  document.getElementById('edb-password').value = '';
+  document.getElementById('edb-dbname').value = '';
+  document.getElementById('edb-ssl').value = 'disable';
+  document.getElementById('edb-maxrows').value = '100';
+  document.getElementById('edb-test-result').style.display = 'none';
+}
+
+function updateEDBDefaults() {
+  const driver = document.getElementById('edb-driver').value;
+  const port = document.getElementById('edb-port');
+  if (driver === 'mysql') {
+    port.value = '3306';
+  } else {
+    port.value = '5432';
+  }
+}
+
+function getEDBFormData() {
+  return {
+    name: document.getElementById('edb-name').value.trim(),
+    driver: document.getElementById('edb-driver').value,
+    host: document.getElementById('edb-host').value.trim(),
+    port: parseInt(document.getElementById('edb-port').value) || 5432,
+    username: document.getElementById('edb-username').value.trim(),
+    password: document.getElementById('edb-password').value,
+    dbname: document.getElementById('edb-dbname').value.trim(),
+    ssl_mode: document.getElementById('edb-ssl').value,
+    max_rows: parseInt(document.getElementById('edb-maxrows').value) || 100
+  };
+}
+
+async function saveExtDB() {
+  const data = getEDBFormData();
+  const editId = document.getElementById('edb-edit-id').value;
+  try {
+    let r;
+    if (editId) {
+      r = await apiFetch('/api/ext-databases/' + editId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({...data, enabled: 1}) });
+    } else {
+      r = await apiFetch('/api/ext-databases', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    }
+    if (!r) return;
+    if (r.ok) {
+      const res = await r.json();
+      if (res.error) toast('Salvo, mas erro ao conectar: ' + res.error);
+      else toast(editId ? 'Banco atualizado!' : 'Banco adicionado!');
+      resetEDBForm();
+      document.getElementById('edb-form-details').removeAttribute('open');
+      loadExtDBs();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function testExtDB() {
+  const editId = document.getElementById('edb-edit-id').value;
+  if (!editId) {
+    // Save first, then test
+    const data = getEDBFormData();
+    if (!data.name || !data.dbname) { toast('Preencha nome e banco primeiro'); return; }
+    try {
+      const r = await apiFetch('/api/ext-databases', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+      if (!r.ok) { toast('Erro: ' + await r.text()); return; }
+      const res = await r.json();
+      document.getElementById('edb-edit-id').value = res.id;
+      loadExtDBs();
+      // Now test it
+      testExtDBById(res.id);
+    } catch(e) { toast('Erro: ' + e.message); }
+    return;
+  }
+  testExtDBById(editId);
+}
+
+async function testExtDBById(id) {
+  const resultEl = document.getElementById('edb-test-result');
+  resultEl.style.display = 'block';
+  resultEl.textContent = 'Testando conexao...';
+  resultEl.style.color = '#6b7280';
+  try {
+    const r = await apiFetch('/api/ext-databases/' + id + '/test', { method: 'POST' });
+    const res = await r.json();
+    if (res.ok) {
+      resultEl.textContent = res.message;
+      resultEl.style.color = '#166534';
+    } else {
+      resultEl.textContent = 'Erro: ' + res.error;
+      resultEl.style.color = '#991b1b';
+    }
+  } catch(e) {
+    resultEl.textContent = 'Erro: ' + e.message;
+    resultEl.style.color = '#991b1b';
+  }
+}
+
+async function reconnectExtDB(id) {
+  toast('Reconectando...');
+  try {
+    const r = await apiFetch('/api/ext-databases/' + id + '/reconnect', { method: 'POST' });
+    const res = await r.json();
+    if (res.ok) { toast('Reconectado!'); loadExtDBs(); }
+    else toast('Erro: ' + res.error);
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function editExtDB(id) {
+  try {
+    const r = await apiFetch('/api/ext-databases');
+    const dbs = await r.json();
+    const d = dbs.find(x => x.id === id);
+    if (!d) return;
+    document.getElementById('edb-edit-id').value = d.id;
+    document.getElementById('edb-name').value = d.name;
+    document.getElementById('edb-driver').value = d.driver;
+    document.getElementById('edb-host').value = d.host;
+    document.getElementById('edb-port').value = d.port;
+    document.getElementById('edb-username').value = d.username;
+    document.getElementById('edb-password').value = '';
+    document.getElementById('edb-dbname').value = d.dbname;
+    document.getElementById('edb-ssl').value = d.ssl_mode;
+    document.getElementById('edb-maxrows').value = d.max_rows;
+    document.getElementById('edb-form-details').open = true;
+    document.getElementById('edb-test-result').style.display = 'none';
+  } catch(e) { console.error(e); }
+}
+
+async function deleteExtDB(id) {
+  if (!confirm('Excluir este banco de dados externo?')) return;
+  try {
+    const r = await apiFetch('/api/ext-databases/' + id, { method: 'DELETE' });
+    if (r.ok) { toast('Banco excluido'); loadExtDBs(); }
+    else toast('Erro: ' + await r.text());
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// --- Agents ---
+async function loadAgents() {
+  try {
+    const r = await apiFetch('/api/agents');
+    if (!r) return;
+    const agents = await r.json();
+    const container = document.getElementById('agents-list');
+    if (agents.length === 0) {
+      container.innerHTML = '<div style="font-size:13px;color:#9ca3af;margin-bottom:14px;">Nenhum agente cadastrado.</div>';
+      return;
+    }
+    // Populate chain_to select
+    const chainSelect = document.getElementById('ag-chain-to');
+    const currentVal = chainSelect.value;
+    chainSelect.innerHTML = '<option value="0">Nenhum</option>' + agents.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+    chainSelect.value = currentVal;
+
+    container.innerHTML = agents.map(a => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin-bottom:6px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <div style="flex:1;min-width:0;">
+          <span style="font-weight:600;font-size:13px;color:#1a1a2e;">${esc(a.name)}</span>
+          ${a.is_default ? '<span style="display:inline-block;padding:2px 6px;background:#fbbf24;color:#78350f;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px;">Padr\u00e3o</span>' : `<span style="display:inline-block;padding:2px 6px;background:${a.enabled?'#dcfce7':'#fef2f2'};color:${a.enabled?'#166534':'#991b1b'};border-radius:4px;font-size:10px;margin-left:6px;">${a.enabled?'ON':'OFF'}</span>`}
+          <span style="display:inline-block;padding:2px 6px;background:#dbeafe;color:#1e40af;border-radius:4px;font-size:10px;margin-left:4px;">${esc(a.model)}</span>
+          ${a.base_url ? '<span style="display:inline-block;padding:2px 6px;background:#fef3c7;color:#92400e;border-radius:4px;font-size:10px;margin-left:4px;">Custom URL</span>' : ''}
+          ${a.chain_to ? '<span style="display:inline-block;padding:2px 6px;background:#e0e7ff;color:#3730a3;border-radius:4px;font-size:10px;margin-left:4px;">Chain</span>' : ''}
+          ${a.rag_enabled ? '<span style="display:inline-block;padding:2px 6px;background:#ecfdf5;color:#065f46;border-radius:4px;font-size:10px;margin-left:4px;">RAG</span>' : ''}
+          ${a.tools_enabled ? '<span style="display:inline-block;padding:2px 6px;background:#fef3c7;color:#92400e;border-radius:4px;font-size:10px;margin-left:4px;">Tools</span>' : ''}
+          <div style="font-size:12px;color:#6b7280;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.description || a.system_prompt.substring(0, 80))}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px;">
+          <button onclick="editAgent(${a.id})" style="padding:4px 10px;font-size:11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;color:#0369a1;">Editar</button>
+          ${a.is_default ? '' : `<button onclick="deleteAgent(${a.id})" style="padding:4px 10px;font-size:11px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;">Excluir</button>`}
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { console.error('load agents:', e); }
+}
+
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// --- RAG Tags multi-select ---
+let allKnowledgeTags = [];
+let selectedRAGTags = new Set();
+
+async function loadKnowledgeTags() {
+  try {
+    const r = await apiFetch('/api/knowledge-tags');
+    if (!r) return;
+    allKnowledgeTags = await r.json();
+  } catch(e) { console.error(e); }
+}
+
+function renderRAGTagsDropdown() {
+  const dd = document.getElementById('ag-rag-tags-dropdown');
+  if (!allKnowledgeTags.length) {
+    dd.innerHTML = '<div style="padding:10px;color:#9ca3af;font-size:13px;">Nenhuma tag na base de conhecimento</div>';
+    return;
+  }
+  dd.innerHTML = allKnowledgeTags.map(t => {
+    const checked = selectedRAGTags.has(t) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:13px;transition:background 0.1s;" onmouseenter="this.style.background='#f3f4f6'" onmouseleave="this.style.background=''"><input type="checkbox" ${checked} onchange="toggleRAGTag('${escapeHtml(t)}',this.checked)" style="accent-color:#334155;cursor:pointer;">${escapeHtml(t)}</label>`;
+  }).join('');
+}
+
+function toggleRAGTag(tag, on) {
+  if (on) selectedRAGTags.add(tag); else selectedRAGTags.delete(tag);
+  syncRAGTags();
+}
+
+function syncRAGTags() {
+  document.getElementById('ag-rag-tags').value = [...selectedRAGTags].join(', ');
+  const wrap = document.getElementById('ag-rag-tags-wrap');
+  const ph = document.getElementById('ag-rag-tags-placeholder');
+  // Remove old pills (keep placeholder)
+  wrap.querySelectorAll('.rag-pill').forEach(el => el.remove());
+  if (selectedRAGTags.size === 0) {
+    ph.style.display = '';
+  } else {
+    ph.style.display = 'none';
+    for (const t of selectedRAGTags) {
+      const pill = document.createElement('span');
+      pill.className = 'rag-pill';
+      pill.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:#e0e7ff;color:#3730a3;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:500;';
+      pill.innerHTML = escapeHtml(t) + '<span onclick="event.stopPropagation();toggleRAGTag(\'' + escapeHtml(t) + '\',false);renderRAGTagsDropdown();" style="cursor:pointer;font-size:14px;color:#6366f1;margin-left:2px;">&times;</span>';
+      wrap.appendChild(pill);
+    }
+  }
+}
+
+function setRAGTagsFromString(csv) {
+  selectedRAGTags.clear();
+  if (csv) {
+    csv.split(',').forEach(t => { t = t.trim(); if (t) selectedRAGTags.add(t); });
+  }
+  syncRAGTags();
+  renderRAGTagsDropdown();
+}
+
+// Toggle dropdown on wrap click, close on outside click
+(function() {
+  const wrap = document.getElementById('ag-rag-tags-wrap');
+  const dd = document.getElementById('ag-rag-tags-dropdown');
+  wrap.addEventListener('click', function(e) {
+    e.stopPropagation();
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+  });
+  dd.addEventListener('click', function(e) { e.stopPropagation(); });
+  document.addEventListener('click', function() { dd.style.display = 'none'; });
+})();
+
+loadKnowledgeTags().then(() => renderRAGTagsDropdown());
+
+function resetAgentForm() {
+  document.getElementById('ag-edit-id').value = '';
+  document.getElementById('ag-name').value = '';
+  document.getElementById('ag-description').value = '';
+  document.getElementById('ag-system-prompt').value = '';
+  document.getElementById('ag-user-prompt').value = '';
+  document.getElementById('ag-model').value = 'gpt-4.1-mini';
+  document.getElementById('ag-max-tokens').value = '1024';
+  document.getElementById('ag-base-url').value = '';
+  document.getElementById('ag-api-key').value = '';
+  document.getElementById('ag-chain-to').value = '0';
+  document.getElementById('ag-chain-condition').value = '';
+  setRAGTagsFromString('');
+  // RAG
+  document.getElementById('ag-rag-enabled').checked = false;
+  document.getElementById('ag-rag-max-results').value = '3';
+  document.getElementById('ag-rag-max-tokens').value = '500';
+  document.getElementById('ag-rag-compressed').checked = false;
+  document.getElementById('ag-rag-embeddings').checked = false;
+  document.getElementById('ag-rag-embedding-model').value = '';
+  // Tools
+  document.getElementById('ag-tools-enabled').checked = false;
+  document.getElementById('ag-tools-max-rounds').value = '3';
+  document.getElementById('ag-tool-timeout-sec').value = '30';
+  // Guardrails
+  document.getElementById('ag-guard-phone-mode').value = 'off';
+  document.getElementById('ag-guard-phone-list').value = '';
+  document.getElementById('ag-guard-max-input').value = '2000';
+  document.getElementById('ag-guard-max-output').value = '3000';
+  document.getElementById('ag-guard-blocked-input').value = '';
+  document.getElementById('ag-guard-blocked-output').value = '';
+  document.getElementById('ag-guard-block-injection').checked = false;
+  document.getElementById('ag-guard-block-pii').checked = false;
+  document.getElementById('ag-guard-block-pii-phone').checked = false;
+  document.getElementById('ag-guard-block-pii-email').checked = false;
+  document.getElementById('ag-guard-block-pii-cpf').checked = false;
+  document.getElementById('ag-knowledge-extract').checked = false;
+}
+
+async function saveAgent() {
+  const data = {
+    name: document.getElementById('ag-name').value.trim(),
+    description: document.getElementById('ag-description').value.trim(),
+    system_prompt: document.getElementById('ag-system-prompt').value.trim(),
+    user_prompt: document.getElementById('ag-user-prompt').value.trim(),
+    model: document.getElementById('ag-model').value.trim() || 'gpt-4.1-mini',
+    max_tokens: parseInt(document.getElementById('ag-max-tokens').value) || 1024,
+    base_url: document.getElementById('ag-base-url').value.trim(),
+    api_key: document.getElementById('ag-api-key').value,
+    chain_to: parseInt(document.getElementById('ag-chain-to').value) || 0,
+    chain_condition: document.getElementById('ag-chain-condition').value.trim(),
+    rag_tags: document.getElementById('ag-rag-tags').value.trim(),
+    enabled: 1,
+    // RAG
+    rag_enabled: document.getElementById('ag-rag-enabled').checked,
+    rag_max_results: parseInt(document.getElementById('ag-rag-max-results').value) || 3,
+    rag_compressed: document.getElementById('ag-rag-compressed').checked,
+    rag_max_tokens: parseInt(document.getElementById('ag-rag-max-tokens').value) || 500,
+    rag_embeddings: document.getElementById('ag-rag-embeddings').checked,
+    rag_embedding_model: document.getElementById('ag-rag-embedding-model').value.trim(),
+    // Tools
+    tools_enabled: document.getElementById('ag-tools-enabled').checked,
+    tools_max_rounds: parseInt(document.getElementById('ag-tools-max-rounds').value) || 3,
+    tool_timeout_sec: parseInt(document.getElementById('ag-tool-timeout-sec').value) || 30,
+    // Guardrails
+    guard_max_input: parseInt(document.getElementById('ag-guard-max-input').value) || 0,
+    guard_max_output: parseInt(document.getElementById('ag-guard-max-output').value) || 0,
+    guard_blocked_input: document.getElementById('ag-guard-blocked-input').value,
+    guard_blocked_output: document.getElementById('ag-guard-blocked-output').value,
+    guard_phone_list: document.getElementById('ag-guard-phone-list').value.trim(),
+    guard_phone_mode: document.getElementById('ag-guard-phone-mode').value,
+    guard_block_injection: document.getElementById('ag-guard-block-injection').checked,
+    guard_block_pii: document.getElementById('ag-guard-block-pii').checked,
+    guard_block_pii_phone: document.getElementById('ag-guard-block-pii-phone').checked,
+    guard_block_pii_email: document.getElementById('ag-guard-block-pii-email').checked,
+    guard_block_pii_cpf: document.getElementById('ag-guard-block-pii-cpf').checked,
+    knowledge_extract: document.getElementById('ag-knowledge-extract').checked
+  };
+  const editId = document.getElementById('ag-edit-id').value;
+  try {
+    let r;
+    if (editId) {
+      r = await apiFetch('/api/agents/' + editId, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    } else {
+      r = await apiFetch('/api/agents', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    }
+    if (!r) return;
+    if (r.ok) {
+      toast(editId ? 'Agente atualizado!' : 'Agente criado!');
+      resetAgentForm();
+      document.getElementById('agent-form-details').removeAttribute('open');
+      loadAgents();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function editAgent(id) {
+  try {
+    const r = await apiFetch('/api/agents');
+    const agents = await r.json();
+    const a = agents.find(x => x.id === id);
+    if (!a) return;
+    document.getElementById('ag-edit-id').value = a.id;
+    document.getElementById('ag-name').value = a.name;
+    document.getElementById('ag-description').value = a.description;
+    document.getElementById('ag-system-prompt').value = a.system_prompt;
+    document.getElementById('ag-user-prompt').value = a.user_prompt;
+    document.getElementById('ag-model').value = a.model;
+    document.getElementById('ag-max-tokens').value = a.max_tokens;
+    document.getElementById('ag-base-url').value = a.base_url;
+    document.getElementById('ag-api-key').value = '';
+    document.getElementById('ag-chain-to').value = a.chain_to || 0;
+    document.getElementById('ag-chain-condition').value = a.chain_condition || '';
+    setRAGTagsFromString(a.rag_tags || '');
+    // RAG
+    document.getElementById('ag-rag-enabled').checked = !!a.rag_enabled;
+    document.getElementById('ag-rag-max-results').value = a.rag_max_results || 3;
+    document.getElementById('ag-rag-max-tokens').value = a.rag_max_tokens || 500;
+    document.getElementById('ag-rag-compressed').checked = !!a.rag_compressed;
+    document.getElementById('ag-rag-embeddings').checked = !!a.rag_embeddings;
+    document.getElementById('ag-rag-embedding-model').value = a.rag_embedding_model || '';
+    // Tools
+    document.getElementById('ag-tools-enabled').checked = !!a.tools_enabled;
+    document.getElementById('ag-tools-max-rounds').value = a.tools_max_rounds || 3;
+    document.getElementById('ag-tool-timeout-sec').value = a.tool_timeout_sec || 30;
+    // Guardrails
+    document.getElementById('ag-guard-phone-mode').value = a.guard_phone_mode || 'off';
+    document.getElementById('ag-guard-phone-list').value = a.guard_phone_list || '';
+    document.getElementById('ag-guard-max-input').value = a.guard_max_input || 0;
+    document.getElementById('ag-guard-max-output').value = a.guard_max_output || 0;
+    document.getElementById('ag-guard-blocked-input').value = a.guard_blocked_input || '';
+    document.getElementById('ag-guard-blocked-output').value = a.guard_blocked_output || '';
+    document.getElementById('ag-guard-block-injection').checked = !!a.guard_block_injection;
+    document.getElementById('ag-guard-block-pii').checked = !!a.guard_block_pii;
+    document.getElementById('ag-guard-block-pii-phone').checked = !!a.guard_block_pii_phone;
+    document.getElementById('ag-guard-block-pii-email').checked = !!a.guard_block_pii_email;
+    document.getElementById('ag-guard-block-pii-cpf').checked = !!a.guard_block_pii_cpf;
+    document.getElementById('ag-knowledge-extract').checked = !!a.knowledge_extract;
+    document.getElementById('agent-form-details').open = true;
+  } catch(e) { console.error(e); }
+}
+
+async function deleteAgent(id) {
+  if (!confirm('Excluir este agente?')) return;
+  try {
+    const r = await apiFetch('/api/agents/' + id, { method: 'DELETE' });
+    if (r.ok) { toast('Agente excluido'); loadAgents(); }
+    else toast('Erro: ' + await r.text());
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// Load custom tools, MCP servers, ext databases & agents on page load
+loadCustomTools();
+loadMCPServers();
+loadExtDBs();
+loadAgents();
+
+// --- Auth / Users ---
+async function checkAuth() {
+  try {
+    const r = await fetch('/api/auth/status');
+    const data = await r.json();
+    if (!data.user) return;
+    authUser = data.user;
+    // Show username and logout
+    document.getElementById('auth-user').textContent = authUser.username;
+    document.getElementById('auth-user').style.display = '';
+    document.getElementById('logout-link').style.display = '';
+    // Show Usuarios tab button and password card for all logged-in users
+    document.getElementById('tab-btn-usuarios').style.display = '';
+    document.getElementById('my-password-card').style.display = '';
+    if (authUser.role === 'admin') {
+      // Show users management card
+      document.getElementById('users-card').style.display = '';
+      loadUsers();
+    } else {
+      // Non-admin: hide all tabs except Usuarios
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        const tabName = btn.getAttribute('onclick');
+        if (tabName && !tabName.includes('usuarios')) {
+          btn.style.display = 'none';
+        }
+      });
+      switchTabDirect('usuarios');
+    }
+  } catch(e) { console.error('auth check:', e); }
+}
+
+function switchTabDirect(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(name)) b.classList.add('active');
+  });
+}
+
+async function loadUsers() {
+  try {
+    const r = await apiFetch('/api/users');
+    if (!r) return;
+    const users = await r.json();
+    const container = document.getElementById('users-list');
+    if (users.length === 0) {
+      container.innerHTML = '<div style="font-size:13px;color:#9ca3af;">Nenhum usuario cadastrado.</div>';
+      return;
+    }
+    container.innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin-bottom:6px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <div>
+          <span style="font-weight:600;font-size:13px;color:#1a1a2e;">${esc(u.username)}</span>
+          <span style="display:inline-block;padding:2px 6px;background:${u.role==='admin'?'#dbeafe':'#f3f4f6'};color:${u.role==='admin'?'#1e40af':'#6b7280'};border-radius:4px;font-size:10px;margin-left:6px;">${u.role}</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button onclick="toggleUserRole(${u.id},'${u.role}')" style="padding:4px 10px;font-size:11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;color:#0369a1;">${u.role==='admin'?'Tornar user':'Tornar admin'}</button>
+          <button onclick="deleteUser(${u.id},'${esc(u.username)}')" style="padding:4px 10px;font-size:11px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;">Excluir</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { console.error('load users:', e); }
+}
+
+async function createUser() {
+  const username = document.getElementById('new-user-name').value.trim();
+  const password = document.getElementById('new-user-pass').value;
+  const role = document.getElementById('new-user-role').value;
+  if (!username || !password) { toast('Preencha usuario e senha'); return; }
+  try {
+    const r = await apiFetch('/api/users', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username, password, role})
+    });
+    if (!r) return;
+    const data = await r.json();
+    if (data.ok) {
+      toast('Usuario criado!');
+      document.getElementById('new-user-name').value = '';
+      document.getElementById('new-user-pass').value = '';
+      document.getElementById('user-form-details').removeAttribute('open');
+      if (data.session) { location.reload(); return; }
+      loadUsers();
+    } else {
+      toast('Erro: ' + data.error);
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function toggleUserRole(id, currentRole) {
+  const newRole = currentRole === 'admin' ? 'user' : 'admin';
+  try {
+    const r = await apiFetch('/api/users/' + id, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({role: newRole})
+    });
+    if (!r) return;
+    const data = await r.json();
+    if (data.ok) { toast('Role alterado!'); loadUsers(); }
+    else toast('Erro: ' + data.error);
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function deleteUser(id, username) {
+  if (!confirm('Excluir usuario ' + username + '?')) return;
+  try {
+    const r = await apiFetch('/api/users/' + id, { method: 'DELETE' });
+    if (!r) return;
+    const data = await r.json();
+    if (data.ok) { toast('Usuario excluido'); loadUsers(); }
+    else toast('Erro: ' + data.error);
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function changeMyPassword() {
+  const current = document.getElementById('my-current-pass').value;
+  const newPass = document.getElementById('my-new-pass').value;
+  const confirm_ = document.getElementById('my-confirm-pass').value;
+  if (!current || !newPass) { toast('Preencha todos os campos'); return; }
+  if (newPass !== confirm_) { toast('Senhas nao conferem'); return; }
+  if (!authUser) { toast('Nao autenticado'); return; }
+  try {
+    const r = await apiFetch('/api/users/' + authUser.id, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({password: newPass, current_password: current})
+    });
+    if (!r) return;
+    const data = await r.json();
+    if (data.ok) {
+      toast('Senha alterada!');
+      document.getElementById('my-current-pass').value = '';
+      document.getElementById('my-new-pass').value = '';
+      document.getElementById('my-confirm-pass').value = '';
+    } else {
+      toast('Erro: ' + data.error);
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+checkAuth();
+</script>
+</body>
+</html>

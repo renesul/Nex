@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatórios - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.container { display: flex; flex-direction: column; gap: 16px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Relatórios</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/config">Config</a>
+    <a href="/conversas">Conversas</a>
+    <a href="/chat">Chat</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="chips">
+    <span class="chip" onclick="askReport('Quantas mensagens recebi esta semana?')">Mensagens esta semana</span>
+    <span class="chip" onclick="askReport('Tarefas pendentes por contato')">Tarefas pendentes por contato</span>
+    <span class="chip" onclick="askReport('Top 10 contatos com mais mensagens')">Top 10 contatos</span>
+    <span class="chip" onclick="askReport('Mensagens por dia nos últimos 30 dias')">Mensagens por dia (30 dias)</span>
+  </div>
+
+  <div class="chat-area" id="chat-area"></div>
+
+  <div class="input-bar" style="flex-wrap:wrap;">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <label style="font-size:11px;color:var(--text-muted);white-space:nowrap;">Agente:</label>
+      <select id="agent-select" class="select-inline">
+        <option value="0">Automático</option>
+      </select>
+      <label style="font-size:11px;color:var(--text-muted);white-space:nowrap;">Banco:</label>
+      <select id="db-select" class="select-inline">
+        <option value="">SQLite (local)</option>
+      </select>
+    </div>
+    <input type="text" id="question" placeholder="Faça uma pergunta sobre seus dados..." onkeydown="if(event.key==='Enter')askFromInput()">
+    <button class="btn-send" id="btn-send" onclick="askFromInput()">Enviar</button>
+    <button class="btn-print" onclick="printReport()">Imprimir</button>
+    <button class="btn-send btn-danger" onclick="clearHistory()" style="font-size:12px;padding:10px 16px;">Limpar histórico</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+let charts = [];
+let reportCount = 0;
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { return null; }
+  return r;
+}
+async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
+
+function askFromInput() {
+  const input = document.getElementById('question');
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = '';
+  askReport(q);
+}
+
+async function loadDatabases() {
+  try {
+    const r = await apiFetch('/api/ext-databases');
+    if (!r) return;
+    const dbs = await r.json();
+    const sel = document.getElementById('db-select');
+    // Remove old external options (keep first)
+    while (sel.options.length > 1) sel.remove(1);
+    dbs.filter(d => d.connected).forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.name;
+      opt.textContent = d.name + ' (' + (d.driver === 'postgres' ? 'PG' : 'MY') + ')';
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.error('load databases:', e); }
+}
+
+async function askReport(question) {
+  const area = document.getElementById('chat-area');
+  const btn = document.getElementById('btn-send');
+  btn.disabled = true;
+
+  const database = document.getElementById('db-select').value;
+  const agentId = parseInt(document.getElementById('agent-select').value) || 0;
+
+  const id = ++reportCount;
+  const card = document.createElement('div');
+  card.className = 'report-card';
+  card.id = 'report-' + id;
+  const dbLabel = database ? ' [' + escapeHtml(database) + ']' : '';
+  card.innerHTML = '<div class="report-question">' + escapeHtml(question) + dbLabel + '</div><div class="loading">Gerando relatório</div>';
+  area.appendChild(card);
+  card.scrollIntoView({ behavior: 'smooth' });
+
+  try {
+    const res = await apiFetch('/api/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, database, agent_id: agentId })
+    });
+    if (!res) return;
+    const data = await res.json();
+    renderReport(card, data);
+  } catch (e) {
+    card.querySelector('.loading').innerHTML = '<div class="report-error">Erro de conexão: ' + escapeHtml(e.message) + '</div>';
+  }
+  btn.disabled = false;
+}
+
+function renderReport(card, data) {
+  let html = '<div class="report-question">' + card.querySelector('.report-question').innerHTML + '</div>';
+  html += '<button class="btn-card-print" onclick="printCard(\'' + card.id + '\')">Imprimir</button>';
+
+  if (data.error) {
+    html += '<div class="report-error">' + escapeHtml(data.error) + '</div>';
+  }
+
+  if (data.sql) {
+    const sqlId = 'sql-' + reportCount;
+    html += '<span class="sql-toggle" onclick="toggleSQL(\'' + sqlId + '\')">&#9654; Ver SQL</span>';
+    html += '<div class="sql-block" id="' + sqlId + '">' + escapeHtml(data.sql) + '</div>';
+  }
+
+  if (data.chart_type && data.chart_type !== 'none' && data.chart_config) {
+    const canvasId = 'chart-' + reportCount;
+    html += '<div class="chart-box"><canvas id="' + canvasId + '"></canvas><img style="display:none"></div>';
+  }
+
+  if (data.columns && data.rows && data.rows.length > 0) {
+    html += '<div class="table-wrap"><table class="data-table"><thead><tr>';
+    for (const col of data.columns) {
+      html += '<th>' + escapeHtml(col) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+    for (const row of data.rows) {
+      html += '<tr>';
+      for (const cell of row) {
+        html += '<td>' + escapeHtml(cell) + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  if (data.insight) {
+    html += '<div class="insight">' + escapeHtml(data.insight) + '</div>';
+  }
+
+  card.innerHTML = html;
+
+  // Render chart after DOM update
+  if (data.chart_type && data.chart_type !== 'none' && data.chart_config) {
+    const canvasId = 'chart-' + reportCount;
+    setTimeout(() => {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      try {
+        const chart = new Chart(canvas, {
+          type: data.chart_type,
+          data: data.chart_config,
+          options: {
+            responsive: true,
+            plugins: { legend: { position: 'bottom' } }
+          }
+        });
+        charts.push(chart);
+        // Store base64 image for printing
+        setTimeout(() => {
+          const img = canvas.parentElement.querySelector('img');
+          if (img) img.src = chart.toBase64Image();
+        }, 500);
+      } catch (e) {
+        console.error('Chart error:', e);
+      }
+    }, 50);
+  }
+}
+
+function toggleSQL(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+function printCard(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  const container = card.closest('.chat-area') || card.parentElement;
+  container.classList.add('print-single');
+  card.classList.add('printing');
+  window.print();
+  container.classList.remove('print-single');
+  card.classList.remove('printing');
+}
+
+function printReport() {
+  window.print();
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function loadAgents() {
+  try {
+    const r = await apiFetch('/api/agents');
+    if (!r) return;
+    const agents = await r.json();
+    const sel = document.getElementById('agent-select');
+    for (const a of agents) {
+      if (!a.enabled) continue;
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.name;
+      sel.appendChild(opt);
+    }
+  } catch(e) { console.error('load agents:', e); }
+}
+
+async function loadHistory() {
+  try {
+    const r = await apiFetch('/api/messages?chat_id=reports');
+    if (!r) return;
+    const data = await r.json();
+    const msgs = data.messages || [];
+    const area = document.getElementById('chat-area');
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.role === 'user') {
+        const id = ++reportCount;
+        const card = document.createElement('div');
+        card.className = 'report-card history-card';
+        card.id = 'report-' + id;
+        card.innerHTML = '<div class="report-question">' + escapeHtml(m.content) + '</div>';
+        // Look for next assistant message
+        if (i + 1 < msgs.length && msgs[i + 1].role === 'assistant') {
+          i++;
+          try {
+            const parsed = JSON.parse(msgs[i].content);
+            renderHistoryCard(card, parsed);
+          } catch(e) {
+            card.innerHTML += '<div class="insight">' + escapeHtml(msgs[i].content) + '</div>';
+          }
+        }
+        area.appendChild(card);
+      }
+    }
+    if (msgs.length > 0) {
+      area.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
+    }
+  } catch(e) { console.error('load history:', e); }
+}
+
+function renderHistoryCard(card, data) {
+  let html = card.querySelector('.report-question').outerHTML;
+  html += '<span class="history-badge" style="font-size:10px;color:#94a3b8;margin-left:8px;">histórico</span>';
+
+  if (data.error) {
+    html += '<div class="report-error">' + escapeHtml(data.error) + '</div>';
+  }
+
+  if (data.sql) {
+    const sqlId = 'sql-' + reportCount;
+    html += '<span class="sql-toggle" onclick="toggleSQL(\'' + sqlId + '\')">&#9654; Ver SQL</span>';
+    html += '<div class="sql-block" id="' + sqlId + '">' + escapeHtml(data.sql) + '</div>';
+  }
+
+  if (data.chart_type && data.chart_type !== 'none' && data.chart_config) {
+    const canvasId = 'chart-' + reportCount;
+    html += '<div class="chart-box"><canvas id="' + canvasId + '"></canvas><img style="display:none"></div>';
+  }
+
+  if (data.insight) {
+    html += '<div class="insight">' + escapeHtml(data.insight) + '</div>';
+  }
+
+  card.innerHTML = html;
+
+  // Render chart
+  if (data.chart_type && data.chart_type !== 'none' && data.chart_config) {
+    const canvasId = 'chart-' + reportCount;
+    setTimeout(() => {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      try {
+        const chart = new Chart(canvas, {
+          type: data.chart_type,
+          data: data.chart_config,
+          options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        });
+        charts.push(chart);
+      } catch(e) { console.error('Chart error:', e); }
+    }, 50);
+  }
+}
+
+async function clearHistory() {
+  if (!confirm('Limpar todo o histórico de relatórios?')) return;
+  try {
+    await apiFetch('/api/report/clear', { method: 'POST' });
+    document.getElementById('chat-area').innerHTML = '';
+    reportCount = 0;
+  } catch(e) { console.error('clear:', e); }
+}
+
+loadDatabases();
+loadAgents();
+loadHistory();
+
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

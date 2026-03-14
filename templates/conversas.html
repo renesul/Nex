@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conversas - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+body { height: 100vh; display: flex; flex-direction: column; }
+.header { flex-shrink: 0; z-index: 10; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Conversas</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/config">Config</a>
+    <a href="/chat">Chat</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="main">
+  <div class="contacts">
+    <div class="search">
+      <input type="text" id="search" placeholder="Buscar contato..." oninput="filterContacts()">
+    </div>
+    <div class="legend" style="padding:4px 12px;">
+      <span><span class="dot-sample" style="background:#10b981;"></span> Ativo (últimas 4h)</span>
+      <span><span class="dot-sample" style="background:#94a3b8;"></span> Inativo</span>
+    </div>
+    <div class="contact-list" id="contact-list"></div>
+  </div>
+  <div class="chat" id="chat">
+    <div class="chat-empty">
+      <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#8696a0" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Selecione uma conversa para visualizar</span>
+    </div>
+  </div>
+</div>
+
+<script>
+let contacts = [];
+let selectedChatID = '';
+
+function formatTime(ts) {
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 86400000 && d.getDate() === now.getDate()) {
+    return d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+  }
+  if (diff < 172800000) return 'Ontem ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+  return d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'}) + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+}
+
+function truncate(s, n) { return s.length > n ? s.substring(0, n) + '...' : s; }
+
+function getInitial(phone) {
+  return phone.length >= 2 ? phone.slice(-2, -1).toUpperCase() : '?';
+}
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { return null; }
+  return r;
+}
+async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
+
+async function loadContacts() {
+  try {
+    const r = await apiFetch('/api/contacts');
+    if (!r) return;
+    contacts = await r.json();
+    renderContacts();
+  } catch(e) { console.error(e); }
+}
+
+function filterContacts() { renderContacts(); }
+
+function renderContacts() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const list = document.getElementById('contact-list');
+  list.innerHTML = '';
+
+  const filtered = contacts.filter(c =>
+    c.chat_id.includes(q) || c.last_message.toLowerCase().includes(q)
+  );
+
+  for (const c of filtered) {
+    const div = document.createElement('div');
+    div.className = 'contact' + (c.chat_id === selectedChatID ? ' active' : '');
+    const isActive = (Date.now()/1000 - c.last_time) < 14400;
+    let displayName = c.chat_id.includes('@') ? c.chat_id : '+' + c.chat_id;
+    if (c.chat_id === 'reports') displayName = 'Relatórios';
+    else if (c.chat_id === 'webchat') displayName = 'Chat Web';
+    let preview = c.last_message;
+    if (preview && preview.startsWith('{')) {
+      try { const p = JSON.parse(preview); if (p.insight) preview = p.insight; } catch(e) {}
+    }
+    div.innerHTML = `
+      <div class="avatar-wrap">
+        <div class="avatar">${c.chat_id === 'reports' ? 'R' : c.chat_id === 'webchat' ? 'C' : getInitial(c.chat_id)}</div>
+        <span class="dot ${isActive ? 'active' : 'inactive'}"></span>
+      </div>
+      <div class="contact-info">
+        <div class="contact-id">${displayName}</div>
+        <div class="contact-preview">${truncate(preview, 40)}</div>
+      </div>
+      <div class="contact-meta">
+        <div class="contact-time">${formatTime(c.last_time)}</div>
+      </div>
+    `;
+    div.onclick = () => selectContact(c.chat_id);
+    list.appendChild(div);
+  }
+}
+
+async function selectContact(chatID) {
+  selectedChatID = chatID;
+  renderContacts();
+  document.querySelector('.main').classList.add('chat-open');
+  await loadMessages(chatID);
+  populateAgentSelect();
+  await loadAgentRouting(chatID);
+}
+
+async function loadMessages(chatID) {
+  try {
+    const [msgRes, notesRes] = await Promise.all([
+      apiFetch('/api/messages?chat_id=' + encodeURIComponent(chatID)),
+      apiFetch('/api/notes?chat_id=' + encodeURIComponent(chatID))
+    ]);
+    if (!msgRes || !notesRes) return;
+    const data = await msgRes.json();
+    const notes = await notesRes.json();
+    renderMessages(chatID, data.messages, data.summaries, notes);
+  } catch(e) { console.error(e); }
+}
+
+function notesBarHtml(notes) {
+  if (!notes || !notes.length) return '';
+  let html = '<div class="notes-bar"><span class="note-label">Notas</span>';
+  for (const n of notes) {
+    html += `<span class="note-item"><span class="note-key">${escapeHtml(n.key)}:</span> ${escapeHtml(n.value)}</span>`;
+  }
+  return html + '</div>';
+}
+
+function renderMessages(chatID, messages, summaries, notes) {
+  const chat = document.getElementById('chat');
+  if (!messages.length) {
+    chat.innerHTML = `
+      ${chatHeaderHtml(chatID)}
+      ${notesBarHtml(notes)}
+      <div class="chat-empty"><span>Nenhuma mensagem nesta conversa</span></div>
+    `;
+    return;
+  }
+
+  const summaryMap = {};
+  for (const s of summaries) {
+    summaryMap[s.session_id] = s.content;
+  }
+
+  let html = chatHeaderHtml(chatID);
+  html += notesBarHtml(notes);
+  html += '<div class="messages">';
+  let currentSession = null;
+
+  for (const m of messages) {
+    if (m.session_id !== currentSession) {
+      if (currentSession !== null && summaryMap[currentSession]) {
+        html += `<div class="session-divider"><span>Resumo: ${escapeHtml(summaryMap[currentSession])}</span></div>`;
+      }
+      if (currentSession !== null) {
+        html += `<div class="session-divider new-session"><span>Nova sessao</span></div>`;
+      }
+      currentSession = m.session_id;
+    }
+    const checks = m.role === 'assistant' ? `<span class="checks ${m.read_at > 0 ? 'read' : 'sent'}">✓✓</span>` : '';
+    let msgContent = escapeHtml(m.content);
+    if (m.role === 'assistant' && m.content.startsWith('{')) {
+      try {
+        const rp = JSON.parse(m.content);
+        if (rp.type === 'report') {
+          let rc = '';
+          if (rp.insight) rc += `<div style="margin-bottom:6px;font-weight:500;">${escapeHtml(rp.insight)}</div>`;
+          if (rp.sql) rc += `<details style="font-size:12px;color:#64748b;"><summary>SQL</summary><pre style="white-space:pre-wrap;font-size:11px;">${escapeHtml(rp.sql)}</pre></details>`;
+          if (rp.error) rc += `<div style="color:#ef4444;">${escapeHtml(rp.error)}</div>`;
+          msgContent = rc;
+        }
+      } catch(e) {}
+    }
+    html += `<div class="msg ${m.role}"><span class="time">${formatTime(m.created_at)}${checks}</span><span class="msg-content">${msgContent}</span></div>`;
+  }
+
+  html += '</div>';
+  chat.innerHTML = html;
+
+  const msgDiv = chat.querySelector('.messages');
+  if (msgDiv) msgDiv.scrollTop = msgDiv.scrollHeight;
+}
+
+function chatHeaderHtml(chatID) {
+  let headerName = chatID.includes('@') ? chatID : '+' + chatID;
+  let headerStatus = 'WhatsApp';
+  let headerAvatar = getInitial(chatID);
+  if (chatID === 'reports') { headerName = 'Relatórios'; headerStatus = 'Relatórios'; headerAvatar = 'R'; }
+  else if (chatID === 'webchat') { headerName = 'Chat Web'; headerStatus = 'Chat Web'; headerAvatar = 'C'; }
+  return `<div class="chat-header">
+    <button class="back-btn" onclick="document.querySelector('.main').classList.remove('chat-open')">&larr;</button>
+    <div class="avatar">${headerAvatar}</div>
+    <div class="chat-header-info">
+      <div class="chat-header-id">${headerName}</div>
+      <div class="chat-header-status">${headerStatus}</div>
+    </div>
+    <label style="font-size:10px;color:var(--text-muted);margin-right:4px;">Agente:</label>
+    <select id="agent-select" onchange="assignAgent()" class="select-inline" style="font-size:12px;padding:6px 10px;">
+      <option value="0">Automático</option>
+    </select>
+  </div>`;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+let agentsList = [];
+
+async function loadAgentsForSelect() {
+  try {
+    const r = await apiFetch('/api/agents');
+    if (!r) return;
+    agentsList = await r.json();
+  } catch(e) { console.error(e); }
+}
+
+function populateAgentSelect() {
+  const sel = document.getElementById('agent-select');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="0">Automático</option>';
+  for (const a of agentsList) {
+    if (!a.enabled) continue;
+    sel.innerHTML += `<option value="${a.id}">${escapeHtml(a.name)}</option>`;
+  }
+  sel.value = current;
+}
+
+async function loadAgentRouting(chatID) {
+  try {
+    const r = await apiFetch('/api/agent-routing?chat_id=' + encodeURIComponent(chatID));
+    if (!r) return;
+    const data = await r.json();
+    const sel = document.getElementById('agent-select');
+    if (sel) sel.value = data.agent_id || 0;
+  } catch(e) { console.error(e); }
+}
+
+async function assignAgent() {
+  const sel = document.getElementById('agent-select');
+  if (!sel || !selectedChatID) return;
+  const agentId = parseInt(sel.value) || 0;
+  try {
+    await apiFetch('/api/agent-routing', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({chat_id: selectedChatID, agent_id: agentId})
+    });
+  } catch(e) { console.error(e); }
+}
+
+loadAgentsForSelect();
+
+loadContacts().then(() => {
+  const hash = window.location.hash.slice(1);
+  if (hash && contacts.find(c => c.chat_id === hash)) selectContact(hash);
+});
+setInterval(() => {
+  loadContacts();
+  if (selectedChatID) loadMessages(selectedChatID);
+}, 3000);
+
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

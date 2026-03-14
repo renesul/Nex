@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chat - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+body { height: 100vh; display: flex; flex-direction: column; }
+.header { flex-shrink: 0; z-index: 10; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Nex</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/config">Config</a>
+    <a href="/conversas">Conversas</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="chat-container">
+  <div class="badges">
+    <label style="font-size:11px;color:var(--text-muted);">Agente:</label>
+    <select id="agent-select" class="select-inline" style="font-size:11px;padding:5px 10px;">
+      <option value="0">Automático</option>
+    </select>
+    <span class="badge-spacer"></span>
+    <button class="btn-clear" onclick="clearChat()">Limpar conversa</button>
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="empty-state" id="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <p>Chat de teste — envie uma mensagem para testar o pipeline</p>
+    </div>
+  </div>
+
+  <div class="typing" id="typing">Digitando<span>.</span><span>.</span><span>.</span></div>
+
+  <div class="input-area">
+    <input type="text" id="input" placeholder="Digite uma mensagem..." autocomplete="off"
+           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}">
+    <button id="send-btn" onclick="sendMessage()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script>
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { return null; }
+  return r;
+}
+async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
+
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send-btn');
+const typingEl = document.getElementById('typing');
+const emptyEl = document.getElementById('empty-state');
+
+// Load existing messages
+apiFetch('/api/messages?chat_id=webchat').then(r => r&&r.json()).then(data => {
+  if (!data) return;
+  if (data.messages && data.messages.length > 0) {
+    emptyEl.style.display = 'none';
+    data.messages.forEach(m => addMessage(m.role, m.content, new Date(m.created_at * 1000)));
+    scrollToBottom();
+  }
+});
+
+function addMessage(role, text, date) {
+  if (!date) date = new Date();
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const timeStr = date.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+  div.innerHTML = escapeHtml(text) + '<span class="time">' + timeStr + '</span>';
+  messagesEl.appendChild(div);
+}
+
+function addBlockedMessage(text, reason) {
+  const div = document.createElement('div');
+  div.className = 'msg blocked';
+  const timeStr = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+  div.innerHTML = escapeHtml(text || 'Mensagem bloqueada') + '<br><small style="color:#991b1b">(' + escapeHtml(reason) + ')</small><span class="time">' + timeStr + '</span>';
+  messagesEl.appendChild(div);
+}
+
+function scrollToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+async function sendMessage() {
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  inputEl.value = '';
+  emptyEl.style.display = 'none';
+  addMessage('user', text);
+  scrollToBottom();
+
+  sendBtn.disabled = true;
+  typingEl.style.display = 'block';
+  scrollToBottom();
+
+  try {
+    const resp = await apiFetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text, agent_id: parseInt(document.getElementById('agent-select').value) || 0})
+    });
+    if (!resp) { typingEl.style.display = 'none'; sendBtn.disabled = false; return; }
+    const data = await resp.json();
+
+    // Simulate typing delay proportional to response length (min 500ms, max 4s)
+    const delay = Math.min(4000, Math.max(500, (data.response || '').length * 30));
+    await new Promise(r => setTimeout(r, delay));
+
+    typingEl.style.display = 'none';
+
+    if (data.blocked) {
+      addBlockedMessage(data.response, data.reason);
+    } else {
+      addMessage('assistant', data.response);
+    }
+  } catch (e) {
+    typingEl.style.display = 'none';
+    addBlockedMessage('Erro de conexao: ' + e.message, 'network_error');
+  }
+
+  sendBtn.disabled = false;
+  scrollToBottom();
+  inputEl.focus();
+}
+
+async function clearChat() {
+  if (!confirm('Limpar todas as mensagens do chat de teste?')) return;
+  try {
+    await apiFetch('/api/chat/clear', { method: 'POST' });
+  } catch (e) {}
+  messagesEl.innerHTML = '';
+  emptyEl.style.display = '';
+  messagesEl.appendChild(emptyEl);
+}
+
+// Load agents for selector
+apiFetch('/api/agents').then(r => r&&r.json()).then(agents => {
+  if (!agents) return;
+  const sel = document.getElementById('agent-select');
+  agents.filter(a => a.enabled).forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = a.name;
+    sel.appendChild(opt);
+  });
+  const savedAgent = localStorage.getItem('webchat_agent_id');
+  if (savedAgent && sel.querySelector('option[value="'+savedAgent+'"]')) {
+    sel.value = savedAgent;
+  }
+  sel.addEventListener('change', function() {
+    localStorage.setItem('webchat_agent_id', this.value);
+  });
+});
+
+inputEl.focus();
+
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

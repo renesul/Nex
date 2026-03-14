@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+body { display: flex; flex-direction: column; min-height: 100vh; }
+.header { width: 100%; justify-content: center; position: static; flex-shrink: 0; }
+.header h1 { margin: 0; }
+.login-wrap { flex: 1; display: flex; align-items: center; justify-content: center; }
+.field { text-align: left; }
+.login-card { max-width: 400px; }
+.login-card .btn { margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header"><h1>Nex</h1></div>
+
+<div class="login-wrap">
+<div class="login-card">
+  <div class="icon">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  </div>
+  <div style="font-size:24px;font-weight:700;color:var(--accent);margin-bottom:4px;letter-spacing:-0.5px;">Nex</div>
+  <h2>Acesso Protegido</h2>
+  <div class="error-msg" id="error-msg"></div>
+  <div class="field">
+    <label>Usuario</label>
+    <input type="text" id="username" autocomplete="username" autofocus>
+  </div>
+  <div class="field">
+    <label>Senha</label>
+    <input type="password" id="password" autocomplete="current-password">
+  </div>
+  <button class="btn" id="login-btn" onclick="doLogin()">Entrar</button>
+</div>
+</div>
+
+<script>
+document.getElementById('password').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('username').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('password').focus();
+});
+
+async function doLogin() {
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('error-msg');
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  if (!username || !password) { errEl.textContent = 'Preencha todos os campos'; errEl.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Entrando...';
+  errEl.style.display = 'none';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password})
+    });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      location.href = '/conversas';
+    } else {
+      errEl.textContent = data.error || 'Erro ao fazer login';
+      errEl.style.display = 'block';
+    }
+  } catch(e) {
+    errEl.textContent = 'Erro de conexao';
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = 'Entrar';
+}
+</script>
+</body>
+</html>
