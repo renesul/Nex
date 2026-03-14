@@ -15,7 +15,7 @@ Intelligent WhatsApp secretary — an AI agent on your personal WhatsApp number,
 
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey?style=for-the-badge)](/)
-[![License](https://img.shields.io/badge/License-Private-red?style=for-the-badge)](/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
 </div>
 
@@ -204,7 +204,7 @@ Stored in `~/.nex/` (or `DB_PATH`):
 
 ## 📄 License
 
-Private project.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
