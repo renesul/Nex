@@ -230,3 +230,98 @@ func TestReadReceipts(t *testing.T) {
 		t.Fatal("MarkReadByWAMsgID unknown:", err)
 	}
 }
+
+func TestGetOrCreateSession_MillisUniqueIDs(t *testing.T) {
+	mem, db := setupTestMemory(t)
+	defer db.Close()
+
+	sid1, _, _ := mem.GetOrCreateSession("chat-a", 240)
+	time.Sleep(2 * time.Millisecond)
+	sid2, _, _ := mem.GetOrCreateSession("chat-b", 240)
+
+	if sid1 == sid2 {
+		t.Errorf("two quick sessions should have different IDs, both got %d", sid1)
+	}
+}
+
+func TestGetContactsPaginated(t *testing.T) {
+	mem, db := setupTestMemory(t)
+	defer db.Close()
+
+	mem.SaveMessage("chat-1", "user", "hello from 1", 100)
+	mem.SaveMessage("chat-2", "user", "hello from 2", 200)
+	mem.SaveMessage("chat-3", "user", "hello from 3", 300)
+
+	contacts, total, err := mem.GetContactsPaginated(2, 0)
+	if err != nil {
+		t.Fatal("GetContactsPaginated:", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if len(contacts) != 2 {
+		t.Errorf("len(contacts) = %d, want 2", len(contacts))
+	}
+}
+
+func TestGetContactsPaginated_Offset(t *testing.T) {
+	mem, db := setupTestMemory(t)
+	defer db.Close()
+
+	mem.SaveMessage("chat-1", "user", "hello from 1", 100)
+	mem.SaveMessage("chat-2", "user", "hello from 2", 200)
+	mem.SaveMessage("chat-3", "user", "hello from 3", 300)
+
+	contacts, total, err := mem.GetContactsPaginated(2, 2)
+	if err != nil {
+		t.Fatal("GetContactsPaginated offset:", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if len(contacts) != 1 {
+		t.Errorf("len(contacts) = %d, want 1", len(contacts))
+	}
+}
+
+func TestGetAllMessagesPaginated(t *testing.T) {
+	mem, db := setupTestMemory(t)
+	defer db.Close()
+
+	chatID := "chat-paged"
+	for i := 0; i < 5; i++ {
+		mem.SaveMessage(chatID, "user", "msg", 500)
+	}
+
+	msgs, total, err := mem.GetAllMessagesPaginated(chatID, 2, 0)
+	if err != nil {
+		t.Fatal("GetAllMessagesPaginated:", err)
+	}
+	if total != 5 {
+		t.Errorf("total = %d, want 5", total)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("len(msgs) = %d, want 2", len(msgs))
+	}
+}
+
+func TestGetAllMessagesPaginated_SecondPage(t *testing.T) {
+	mem, db := setupTestMemory(t)
+	defer db.Close()
+
+	chatID := "chat-paged2"
+	for i := 0; i < 5; i++ {
+		mem.SaveMessage(chatID, "user", "msg", 600)
+	}
+
+	msgs, total, err := mem.GetAllMessagesPaginated(chatID, 2, 2)
+	if err != nil {
+		t.Fatal("GetAllMessagesPaginated second page:", err)
+	}
+	if total != 5 {
+		t.Errorf("total = %d, want 5", total)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("len(msgs) = %d, want 2", len(msgs))
+	}
+}

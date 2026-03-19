@@ -27,7 +27,7 @@ type Config struct {
 	// Response mode
 	ResponseMode string // "all", "owner", "contacts"
 	// Groups
-	GroupsEnabled bool
+	GroupsEnabled   bool
 	GroupList       string // comma-separated group JIDs (ex: 120363XXX@g.us)
 	WhatsAppAgentID int
 }
@@ -170,11 +170,11 @@ func SaveConfig(db *sql.DB, cfg *Config) error {
 		"mcp_server_enabled": strconv.FormatBool(cfg.MCPServerEnabled),
 		"mcp_server_token":   cfg.MCPServerToken,
 		// General
-		"timezone":       cfg.Timezone,
-		"response_mode":  cfg.ResponseMode,
-		"groups_enabled": strconv.FormatBool(cfg.GroupsEnabled),
-		"group_list":         cfg.GroupList,
-		"whatsapp_agent_id":  strconv.Itoa(cfg.WhatsAppAgentID),
+		"timezone":          cfg.Timezone,
+		"response_mode":     cfg.ResponseMode,
+		"groups_enabled":    strconv.FormatBool(cfg.GroupsEnabled),
+		"group_list":        cfg.GroupList,
+		"whatsapp_agent_id": strconv.Itoa(cfg.WhatsAppAgentID),
 	}
 	cfg.Mu.RUnlock()
 

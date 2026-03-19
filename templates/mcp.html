@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.server-item { padding: 12px 14px; margin-bottom: 8px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
+.server-item .server-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.server-item .server-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.server-item .server-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.badge-ok { background: #dcfce7; color: #166534; }
+.badge-err { background: #fef2f2; color: #991b1b; }
+.badge-info { background: #dbeafe; color: #1e40af; }
+.server-url { font-size: 12px; color: #6b7280; margin-top: 2px; }
+.inline-btn { padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer; border: 1px solid; }
+.inline-btn.reconnect { background: #f0fdf4; border-color: #bbf7d0; color: #1e40af; }
+.inline-btn.edit { background: #f0f9ff; border-color: #bae6fd; color: #0369a1; }
+.inline-btn.delete { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.endpoint-box { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; font-family: monospace; font-size: 13px; color: #334155; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>MCP</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegacao"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/conversas">Conversas</a>
+    <a href="/chat">Chat</a>
+    <a href="/agentes">Agentes</a>
+    <a href="/ferramentas">Ferramentas</a>
+    <a href="/mcp-admin">MCP</a>
+    <a href="/databases">Databases</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/config">Config</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Section 1: Nex MCP Server Config -->
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Servidor MCP do Nex
+    </h2>
+    <div class="field">
+      <div class="toggle">
+        <input type="checkbox" id="mcp_server_enabled">
+        <label for="mcp_server_enabled">Expor ferramentas via protocolo MCP (SSE)</label>
+      </div>
+      <div class="hint">Permite que clientes MCP externos acessem as ferramentas do Nex</div>
+    </div>
+    <div class="field">
+      <label>Token de autenticacao</label>
+      <input type="text" id="mcp_server_token" placeholder="Vazio = sem autenticacao">
+      <div class="hint">Clientes MCP devem enviar Authorization: Bearer &lt;token&gt;</div>
+    </div>
+    <div class="endpoint-box">
+      Endpoint: <strong>/mcp/sse</strong>
+    </div>
+    <div class="hint" style="margin-top:6px;">Requer reinicio do Nex para ativar/desativar o servidor MCP</div>
+    <button class="btn" style="margin-top:12px;" onclick="saveServerConfig()">Salvar Configuracao</button>
+  </div>
+
+  <!-- Section 2: External MCP Servers (clients) -->
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+      Servidores MCP Externos
+    </h2>
+
+    <div id="mcp-servers-list" style="margin-bottom:14px;">
+      <div style="font-size:13px;color:#9ca3af;">Carregando...</div>
+    </div>
+
+    <details id="mcp-form-details">
+      <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;margin-bottom:12px;">+ Adicionar Servidor MCP</summary>
+      <div id="mcp-form">
+        <input type="hidden" id="mcp-edit-id" value="">
+        <div class="field">
+          <label>Nome</label>
+          <input type="text" id="mcp-name" placeholder="meu-servidor">
+        </div>
+        <div class="field">
+          <label>URL (endpoint SSE)</label>
+          <input type="text" id="mcp-url" placeholder="http://localhost:3000/sse">
+          <div class="hint">Endpoint SSE do servidor MCP remoto</div>
+        </div>
+        <div class="field">
+          <label>API Key (opcional)</label>
+          <input type="password" id="mcp-api-key" placeholder="Token de autenticacao" autocomplete="new-password">
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="saveMCPServer()">Salvar Servidor</button>
+          <button class="btn btn-secondary" id="cancel-edit-btn" onclick="resetMCPForm()" style="display:none;">Cancelar</button>
+        </div>
+      </div>
+    </details>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let mcpServers = [];
+
+// --- Utility functions ---
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { toast('Sem permissao'); return null; }
+  return r;
+}
+
+async function doLogout() {
+  await fetch('/api/logout', {method:'POST'});
+  location.href = '/login';
+}
+
+// --- Section 1: Nex MCP Server Config ---
+
+async function loadServerConfig() {
+  try {
+    const r = await apiFetch('/api/config');
+    if (!r) return;
+    const cfg = await r.json();
+    document.getElementById('mcp_server_enabled').checked = !!cfg.mcp_server_enabled;
+    // Token field left blank intentionally — show placeholder
+    document.getElementById('mcp_server_token').value = cfg.mcp_server_token || '';
+  } catch(e) { console.error('load config:', e); }
+}
+
+async function saveServerConfig() {
+  const body = {
+    mcp_server_enabled: document.getElementById('mcp_server_enabled').checked,
+  };
+  const token = document.getElementById('mcp_server_token').value;
+  if (token) body.mcp_server_token = token;
+
+  try {
+    const r = await apiFetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (!r) return;
+    if (r.ok) {
+      toast('Configuracao MCP salva!');
+      loadServerConfig();
+    } else {
+      toast('Erro ao salvar: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// --- Section 2: External MCP Servers ---
+
+async function loadMCPServers() {
+  try {
+    const r = await apiFetch('/api/mcp-servers');
+    if (!r) return;
+    mcpServers = await r.json();
+    renderMCPServers();
+  } catch(e) { console.error('load mcp servers:', e); }
+}
+
+function renderMCPServers() {
+  const container = document.getElementById('mcp-servers-list');
+  if (mcpServers.length === 0) {
+    container.innerHTML = '<div style="font-size:13px;color:#9ca3af;">Nenhum servidor MCP configurado.</div>';
+    return;
+  }
+
+  container.innerHTML = mcpServers.map(s => `
+    <div class="server-item">
+      <div class="server-header">
+        <div class="server-meta">
+          <span style="font-weight:600;font-size:13px;color:#1a1a2e;">${escapeHtml(s.name)}</span>
+          <span class="badge ${s.connected ? 'badge-ok' : 'badge-err'}">${s.connected ? 'Conectado' : 'Desconectado'}</span>
+          <span class="badge badge-info">${s.tools.length} tools</span>
+        </div>
+        <div class="server-actions">
+          <button class="inline-btn reconnect" onclick="reconnectMCP(${s.id})">Reconectar</button>
+          <button class="inline-btn edit" onclick="editMCPServer(${s.id})">Editar</button>
+          <button class="inline-btn delete" onclick="deleteMCPServer(${s.id})">Excluir</button>
+        </div>
+      </div>
+      <div class="server-url">${escapeHtml(s.url)}</div>
+      ${s.tools.length > 0 ? `
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer;font-size:11px;color:#6b7280;">Ver tools descobertas</summary>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">
+          ${s.tools.map(t => `<span title="${escapeHtml(t.description)}" style="display:inline-block;padding:3px 8px;background:#f0fdf4;color:#1e40af;border:1px solid #bbf7d0;border-radius:6px;font-size:11px;">${escapeHtml(t.name)}</span>`).join('')}
+        </div>
+      </details>` : ''}
+    </div>
+  `).join('');
+}
+
+function resetMCPForm() {
+  document.getElementById('mcp-edit-id').value = '';
+  document.getElementById('mcp-name').value = '';
+  document.getElementById('mcp-url').value = '';
+  document.getElementById('mcp-api-key').value = '';
+  document.getElementById('cancel-edit-btn').style.display = 'none';
+  document.getElementById('mcp-form-details').removeAttribute('open');
+}
+
+async function saveMCPServer() {
+  const data = {
+    name: document.getElementById('mcp-name').value.trim(),
+    url: document.getElementById('mcp-url').value.trim(),
+    api_key: document.getElementById('mcp-api-key').value
+  };
+
+  if (!data.name || !data.url) {
+    toast('Nome e URL sao obrigatorios');
+    return;
+  }
+
+  const editId = document.getElementById('mcp-edit-id').value;
+  try {
+    let r;
+    if (editId) {
+      r = await apiFetch('/api/mcp-servers/' + editId, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({...data, enabled: true})
+      });
+    } else {
+      r = await apiFetch('/api/mcp-servers', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+    }
+    if (!r) return;
+    if (r.ok) {
+      const res = await r.json();
+      if (res.error) toast('Salvo, mas erro ao conectar: ' + res.error);
+      else toast(editId ? 'Servidor atualizado!' : 'Servidor adicionado!');
+      resetMCPForm();
+      loadMCPServers();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function reconnectMCP(id) {
+  toast('Reconectando...');
+  try {
+    const r = await apiFetch('/api/mcp-servers/' + id + '/reconnect', { method: 'POST' });
+    if (!r) return;
+    const res = await r.json();
+    if (res.ok) { toast('Reconectado!'); loadMCPServers(); }
+    else toast('Erro: ' + res.error);
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function editMCPServer(id) {
+  const s = mcpServers.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('mcp-edit-id').value = s.id;
+  document.getElementById('mcp-name').value = s.name;
+  document.getElementById('mcp-url').value = s.url;
+  document.getElementById('mcp-api-key').value = '';
+  document.getElementById('cancel-edit-btn').style.display = 'inline-block';
+  document.getElementById('mcp-form-details').open = true;
+  document.getElementById('mcp-form-details').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function deleteMCPServer(id) {
+  if (!confirm('Excluir este servidor MCP?')) return;
+  try {
+    const r = await apiFetch('/api/mcp-servers/' + id, { method: 'DELETE' });
+    if (!r) return;
+    if (r.ok) { toast('Servidor excluido'); loadMCPServers(); }
+    else toast('Erro: ' + await r.text());
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// --- Init ---
+
+loadServerConfig();
+loadMCPServers();
+
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

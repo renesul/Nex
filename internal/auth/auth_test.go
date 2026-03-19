@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -23,6 +24,8 @@ func newTestAuth(t *testing.T) (*Auth, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Clear force-change flag for test admin so existing tests pass
+	db.Exec("UPDATE users SET must_change_password = 0")
 	return auth, db
 }
 
@@ -479,5 +482,184 @@ func TestLogoutHandler(t *testing.T) {
 
 	if auth.GetSession(token) != nil {
 		t.Fatal("session should be destroyed after logout")
+	}
+}
+
+// newTestAuthKeepFlag creates an Auth without clearing must_change_password,
+// so the default admin retains must_change_password=1.
+func newTestAuthKeepFlag(t *testing.T) (*Auth, *sql.DB) {
+	t.Helper()
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	auth, err := NewAuth(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Do NOT clear must_change_password — keep the default admin's flag as-is
+	return auth, db
+}
+
+func TestMustChangePassword_DefaultAdmin(t *testing.T) {
+	a, db := newTestAuthKeepFlag(t)
+	defer db.Close()
+
+	user, err := a.Authenticate("admin", "admin123")
+	if err != nil {
+		t.Fatal("expected admin to authenticate:", err)
+	}
+	if !user.MustChangePassword {
+		t.Fatal("expected MustChangePassword == true for fresh default admin")
+	}
+}
+
+func TestMustChangePassword_BlocksAPI(t *testing.T) {
+	a, db := newTestAuthKeepFlag(t)
+	defer db.Close()
+
+	user, _ := a.Authenticate("admin", "admin123")
+	token := a.CreateSession(user)
+
+	handler := a.Middleware(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		rw.WriteHeader(200)
+	}))
+
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: token})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != 403 {
+		t.Fatalf("expected 403 for must_change_password session on /api/config, got: %d", rr.Code)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["error"] != "must_change_password" {
+		t.Fatalf("expected error=must_change_password, got: %v", resp)
+	}
+}
+
+func TestMustChangePassword_AllowsChangePassword(t *testing.T) {
+	a, db := newTestAuthKeepFlag(t)
+	defer db.Close()
+
+	user, _ := a.Authenticate("admin", "admin123")
+	token := a.CreateSession(user)
+
+	called := false
+	handler := a.Middleware(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		called = true
+		rw.WriteHeader(200)
+	}))
+
+	req := httptest.NewRequest("POST", "/api/auth/change-password", nil)
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: token})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Fatal("expected middleware to pass through to handler for /api/auth/change-password")
+	}
+	if rr.Code != 200 {
+		t.Fatalf("expected 200 for /api/auth/change-password, got: %d", rr.Code)
+	}
+}
+
+func TestMustChangePassword_AllowsLogout(t *testing.T) {
+	a, db := newTestAuthKeepFlag(t)
+	defer db.Close()
+
+	user, _ := a.Authenticate("admin", "admin123")
+	token := a.CreateSession(user)
+
+	called := false
+	handler := a.Middleware(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		called = true
+		rw.WriteHeader(200)
+	}))
+
+	req := httptest.NewRequest("POST", "/api/logout", nil)
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: token})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Fatal("expected middleware to pass through to handler for /api/logout")
+	}
+	if rr.Code != 200 {
+		t.Fatalf("expected 200 for /api/logout, got: %d", rr.Code)
+	}
+}
+
+func TestHandleChangePassword_Success(t *testing.T) {
+	a, db := newTestAuthKeepFlag(t)
+	defer db.Close()
+
+	user, _ := a.Authenticate("admin", "admin123")
+	token := a.CreateSession(user)
+	session := a.GetSession(token)
+
+	body := `{"current_password":"admin123","new_password":"newpass456"}`
+	req := httptest.NewRequest("POST", "/api/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// Inject session into context (simulates middleware)
+	ctx := context.WithValue(req.Context(), ctxSession, session)
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	a.HandleChangePassword(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got: %d — body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["ok"] != true {
+		t.Fatal("expected ok=true in response")
+	}
+
+	// Verify must_change_password cleared in DB
+	var flag int
+	db.QueryRow("SELECT must_change_password FROM users WHERE id = ?", user.ID).Scan(&flag)
+	if flag != 0 {
+		t.Fatal("expected must_change_password = 0 in DB after password change")
+	}
+
+	// Verify new password works
+	_, err := a.Authenticate("admin", "newpass456")
+	if err != nil {
+		t.Fatal("new password should work after change:", err)
+	}
+}
+
+func TestHandleChangePassword_WrongCurrent(t *testing.T) {
+	a, db := newTestAuthKeepFlag(t)
+	defer db.Close()
+
+	user, _ := a.Authenticate("admin", "admin123")
+	token := a.CreateSession(user)
+	session := a.GetSession(token)
+
+	body := `{"current_password":"wrongpass","new_password":"newpass456"}`
+	req := httptest.NewRequest("POST", "/api/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := context.WithValue(req.Context(), ctxSession, session)
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	a.HandleChangePassword(rr, req)
+
+	if rr.Code != 400 {
+		t.Fatalf("expected 400 for wrong current password, got: %d", rr.Code)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if !strings.Contains(resp["error"], "senha atual incorreta") {
+		t.Fatalf("expected 'senha atual incorreta' error, got: %v", resp)
 	}
 }

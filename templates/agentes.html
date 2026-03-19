@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentes - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.field textarea { min-height: 100px; }
+.agent-row { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; margin-bottom:8px; background:rgba(255,255,255,0.6); border-radius:var(--radius-sm); border:1px solid rgba(0,0,0,0.06); transition:all 0.15s var(--ease); }
+.agent-row:hover { background:rgba(99,102,241,0.04); border-color:rgba(99,102,241,0.12); }
+.agent-badges { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+.badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; }
+.badge-default { background:#fbbf24; color:#78350f; }
+.badge-on { background:#dcfce7; color:#166534; }
+.badge-off { background:#fef2f2; color:#991b1b; }
+.badge-model { background:#dbeafe; color:#1e40af; }
+.badge-url { background:#fef3c7; color:#92400e; }
+.badge-chain { background:#e0e7ff; color:#3730a3; }
+.badge-rag { background:#ecfdf5; color:#065f46; }
+.badge-tools { background:#fef3c7; color:#92400e; }
+.section-collapse { margin-top:8px; border:1px solid rgba(0,0,0,0.06); border-radius:var(--radius-sm); padding:14px; background:rgba(255,255,255,0.3); }
+.section-collapse summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--slate-800); }
+.section-collapse[open] summary { margin-bottom:12px; }
+.rag-pill { display:inline-flex; align-items:center; gap:4px; background:#e0e7ff; color:#3730a3; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:500; }
+.rag-pill .pill-x { cursor:pointer; font-size:14px; color:#6366f1; margin-left:2px; }
+#rag-tags-wrap { display:flex; flex-wrap:wrap; gap:6px; padding:10px; border:1.5px solid rgba(0,0,0,0.08); border-radius:var(--radius-sm); background:rgba(255,255,255,0.5); min-height:42px; cursor:pointer; }
+#rag-tags-dropdown { display:none; border:1.5px solid rgba(0,0,0,0.08); border-top:none; border-radius:0 0 var(--radius-sm) var(--radius-sm); background:white; max-height:180px; overflow-y:auto; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Agentes</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/conversas">Conversas</a>
+    <a href="/chat">Chat</a>
+    <a href="/ferramentas">Ferramentas</a>
+    <a href="/mcp-admin">MCP</a>
+    <a href="/databases">Databases</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/config">Config</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Agent form card -->
+  <div class="card" id="form-card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span id="form-title">Adicionar Agente</span>
+    </h2>
+    <input type="hidden" id="ag-edit-id" value="">
+
+    <!-- Identity -->
+    <div class="form-section">
+      <div class="form-section-title">Identidade</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Nome</label>
+          <input type="text" id="ag-name" placeholder="atendimento">
+          <div class="hint">Identificador unico do agente</div>
+        </div>
+        <div class="field">
+          <label>Modelo</label>
+          <input type="text" id="ag-model" placeholder="gpt-4.1-mini" value="gpt-4.1-mini">
+        </div>
+      </div>
+      <div class="field">
+        <label>Descricao</label>
+        <input type="text" id="ag-description" placeholder="Agente de atendimento ao cliente">
+      </div>
+      <div class="field">
+        <label>System Prompt</label>
+        <textarea id="ag-system-prompt" rows="6" placeholder="Voce e um atendente profissional..."></textarea>
+      </div>
+      <div class="field">
+        <label>User Prompt (opcional)</label>
+        <textarea id="ag-user-prompt" rows="3" placeholder="Responda sempre em portugues formal."></textarea>
+        <div class="hint">Prefixo adicionado a cada mensagem recebida</div>
+      </div>
+    </div>
+
+    <!-- Model config -->
+    <div class="form-section">
+      <div class="form-section-title">Configuracao do Modelo</div>
+      <div class="field">
+        <label>Max Tokens</label>
+        <input type="number" id="ag-max-tokens" value="1024" min="50" max="32000">
+      </div>
+      <div class="field">
+        <label>Base URL (opcional)</label>
+        <input type="text" id="ag-base-url" placeholder="https://api.openai.com/v1">
+        <div class="hint">Vazio = usa config global</div>
+      </div>
+      <div class="field">
+        <label>API Key (opcional)</label>
+        <input type="password" id="ag-api-key" placeholder="Vazio = usa config global" autocomplete="new-password">
+        <div class="hint">Vazio = usa config global</div>
+      </div>
+    </div>
+
+    <!-- Chaining -->
+    <div class="form-section">
+      <div class="form-section-title">Encadeamento de Agentes</div>
+      <div class="field">
+        <label>Encadear para (opcional)</label>
+        <select id="ag-chain-to"><option value="0">Nenhum</option></select>
+        <div class="hint">Resposta deste agente sera passada como contexto para o agente selecionado</div>
+      </div>
+      <div class="field">
+        <label>Condicao de encadeamento</label>
+        <input type="text" id="ag-chain-condition" placeholder="Vazio = sempre encadeia">
+        <div class="hint">Se preenchido, so encadeia se a resposta contiver este texto</div>
+      </div>
+    </div>
+
+    <!-- RAG Tags -->
+    <div class="field">
+      <label>RAG Tags (filtro de conhecimento)</label>
+      <input type="hidden" id="ag-rag-tags">
+      <div id="rag-tags-wrap">
+        <span id="rag-tags-placeholder" style="color:var(--text-muted);font-size:13px;">Clique para selecionar tags...</span>
+      </div>
+      <div id="rag-tags-dropdown"></div>
+      <div class="hint">Vazio = busca em toda a base de conhecimento</div>
+    </div>
+
+    <!-- RAG Settings -->
+    <details class="section-collapse">
+      <summary>RAG (Base de Conhecimento)</summary>
+      <div class="toggle">
+        <input type="checkbox" id="ag-rag-enabled">
+        <label for="ag-rag-enabled">Busca na base de conhecimento antes de responder</label>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Resultados por busca</label>
+          <input type="number" id="ag-rag-max-results" min="1" max="10" value="3">
+        </div>
+        <div class="field">
+          <label>Limite de tokens RAG</label>
+          <input type="number" id="ag-rag-max-tokens" min="100" max="4000" step="50" value="500">
+        </div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="ag-rag-compressed">
+        <label for="ag-rag-compressed">Usar versao comprimida</label>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="ag-rag-embeddings">
+        <label for="ag-rag-embeddings">Busca semantica por embeddings</label>
+      </div>
+      <div class="field">
+        <label>Modelo de Embedding</label>
+        <input type="text" id="ag-rag-embedding-model" placeholder="text-embedding-3-small">
+      </div>
+    </details>
+
+    <!-- Tools Settings -->
+    <details class="section-collapse">
+      <summary>Tools (Function Calling)</summary>
+      <div class="toggle">
+        <input type="checkbox" id="ag-tools-enabled">
+        <label for="ag-tools-enabled">Permitir IA executar ferramentas</label>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Max rounds por mensagem</label>
+          <input type="number" id="ag-tools-max-rounds" min="1" max="10" value="3">
+        </div>
+        <div class="field">
+          <label>Timeout por ferramenta (s)</label>
+          <input type="number" id="ag-tool-timeout-sec" min="5" max="300" value="30">
+        </div>
+      </div>
+    </details>
+
+    <!-- Guardrails Settings -->
+    <details class="section-collapse">
+      <summary>Seguranca (Guardrails)</summary>
+      <div class="field">
+        <label>Modo de filtro de telefone</label>
+        <select id="ag-guard-phone-mode">
+          <option value="off">Desligado</option>
+          <option value="whitelist">Whitelist</option>
+          <option value="blacklist">Blacklist</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Lista de telefones (virgula)</label>
+        <input type="text" id="ag-guard-phone-list" placeholder="5511999999999, 5521888888888">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Max entrada (chars, 0=sem)</label>
+          <input type="number" id="ag-guard-max-input" min="0" max="50000" value="2000">
+        </div>
+        <div class="field">
+          <label>Max saida (chars, 0=sem)</label>
+          <input type="number" id="ag-guard-max-output" min="0" max="50000" value="3000">
+        </div>
+      </div>
+      <div class="field">
+        <label>Padroes bloqueados na entrada (um por linha)</label>
+        <textarea id="ag-guard-blocked-input" rows="2"></textarea>
+      </div>
+      <div class="field">
+        <label>Padroes bloqueados na saida (um por linha)</label>
+        <textarea id="ag-guard-blocked-output" rows="2"></textarea>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="ag-guard-block-injection">
+        <label for="ag-guard-block-injection">Bloquear prompt injection</label>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="ag-guard-block-pii">
+        <label for="ag-guard-block-pii">Bloquear PII (master)</label>
+      </div>
+      <div style="padding-left:24px;border-left:2px solid rgba(99,102,241,0.15);">
+        <div class="hint" style="margin-bottom:6px;">Selecione quais tipos de dados pessoais devem ser filtrados</div>
+        <div class="toggle">
+          <input type="checkbox" id="ag-guard-block-pii-phone">
+          <label for="ag-guard-block-pii-phone">Telefone</label>
+        </div>
+        <div class="toggle">
+          <input type="checkbox" id="ag-guard-block-pii-email">
+          <label for="ag-guard-block-pii-email">Email</label>
+        </div>
+        <div class="toggle">
+          <input type="checkbox" id="ag-guard-block-pii-cpf">
+          <label for="ag-guard-block-pii-cpf">CPF</label>
+        </div>
+      </div>
+    </details>
+
+    <!-- Knowledge extract -->
+    <div class="toggle" style="margin-top:12px;">
+      <input type="checkbox" id="ag-knowledge-extract">
+      <label for="ag-knowledge-extract">Extrair conhecimento automaticamente ao fim de cada sessao</label>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn" id="save-btn" onclick="saveAgent()">Adicionar</button>
+      <button class="btn btn-secondary" id="cancel-btn" onclick="cancelEdit()" style="display:none;">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Agent list -->
+  <div class="toolbar">
+    <input type="text" id="search" placeholder="Filtrar agentes..." oninput="renderAgents()">
+  </div>
+
+  <div id="agents-list">
+    <div class="empty">Carregando...</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let agents = [];
+let editingId = null;
+let allKnowledgeTags = [];
+let selectedRAGTags = new Set();
+
+// -- Utilities --
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { toast('Sem permissao'); return null; }
+  return r;
+}
+
+async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
+
+// -- Load agents --
+
+async function loadAgents() {
+  try {
+    const r = await apiFetch('/api/agents');
+    if (!r) return;
+    agents = await r.json();
+    populateChainSelect();
+    renderAgents();
+  } catch(e) { console.error('loadAgents:', e); }
+}
+
+function populateChainSelect() {
+  const sel = document.getElementById('ag-chain-to');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="0">Nenhum</option>' + agents.map(a =>
+    `<option value="${a.id}">${escapeHtml(a.name)}</option>`
+  ).join('');
+  sel.value = cur;
+}
+
+function renderAgents() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const container = document.getElementById('agents-list');
+
+  const filtered = agents.filter(a =>
+    a.name.toLowerCase().includes(q) ||
+    (a.description || '').toLowerCase().includes(q) ||
+    a.model.toLowerCase().includes(q)
+  );
+
+  if (!filtered.length) {
+    container.innerHTML = '<div class="empty">Nenhum agente encontrado</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(a => {
+    const desc = a.description || a.system_prompt.substring(0, 80);
+    return `<div class="agent-row">
+      <div style="flex:1;min-width:0;">
+        <span style="font-weight:600;font-size:14px;color:var(--text-primary);">${escapeHtml(a.name)}</span>
+        <div class="agent-badges">
+          ${a.is_default ? '<span class="badge badge-default">Padrao</span>' : `<span class="badge ${a.enabled ? 'badge-on' : 'badge-off'}">${a.enabled ? 'ON' : 'OFF'}</span>`}
+          <span class="badge badge-model">${escapeHtml(a.model)}</span>
+          ${a.base_url ? '<span class="badge badge-url">Custom URL</span>' : ''}
+          ${a.chain_to ? '<span class="badge badge-chain">Chain</span>' : ''}
+          ${a.rag_enabled ? '<span class="badge badge-rag">RAG</span>' : ''}
+          ${a.tools_enabled ? '<span class="badge badge-tools">Tools</span>' : ''}
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(desc)}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;margin-left:12px;">
+        ${!a.is_default ? `<button class="btn btn-sm btn-secondary" onclick="toggleAgent(${a.id},${a.enabled?0:1})">${a.enabled ? 'Desativar' : 'Ativar'}</button>` : ''}
+        <button class="btn btn-sm" onclick="editAgent(${a.id})">Editar</button>
+        ${!a.is_default ? `<button class="btn btn-sm btn-danger" style="padding:6px 14px;font-size:12px;width:auto;" onclick="deleteAgent(${a.id})">Excluir</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// -- Toggle enabled --
+
+async function toggleAgent(id, enabled) {
+  const a = agents.find(x => x.id === id);
+  if (!a) return;
+  const data = Object.assign({}, a, { enabled: enabled, api_key: '' });
+  try {
+    const r = await apiFetch('/api/agents/' + id, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (!r) return;
+    if (r.ok) { toast(enabled ? 'Agente ativado' : 'Agente desativado'); await loadAgents(); }
+    else toast('Erro: ' + await r.text());
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// -- Save agent (create or update) --
+
+async function saveAgent() {
+  const name = document.getElementById('ag-name').value.trim();
+  const systemPrompt = document.getElementById('ag-system-prompt').value.trim();
+  if (!name) { toast('Nome e obrigatorio'); return; }
+  if (!systemPrompt && !editingId) { toast('System prompt e obrigatorio'); return; }
+
+  const data = {
+    name: name,
+    description: document.getElementById('ag-description').value.trim(),
+    system_prompt: systemPrompt,
+    user_prompt: document.getElementById('ag-user-prompt').value.trim(),
+    model: document.getElementById('ag-model').value.trim() || 'gpt-4.1-mini',
+    max_tokens: parseInt(document.getElementById('ag-max-tokens').value) || 1024,
+    base_url: document.getElementById('ag-base-url').value.trim(),
+    api_key: document.getElementById('ag-api-key').value,
+    chain_to: parseInt(document.getElementById('ag-chain-to').value) || 0,
+    chain_condition: document.getElementById('ag-chain-condition').value.trim(),
+    rag_tags: document.getElementById('ag-rag-tags').value.trim(),
+    enabled: 1,
+    // RAG
+    rag_enabled: document.getElementById('ag-rag-enabled').checked,
+    rag_max_results: parseInt(document.getElementById('ag-rag-max-results').value) || 3,
+    rag_compressed: document.getElementById('ag-rag-compressed').checked,
+    rag_max_tokens: parseInt(document.getElementById('ag-rag-max-tokens').value) || 500,
+    rag_embeddings: document.getElementById('ag-rag-embeddings').checked,
+    rag_embedding_model: document.getElementById('ag-rag-embedding-model').value.trim(),
+    // Tools
+    tools_enabled: document.getElementById('ag-tools-enabled').checked,
+    tools_max_rounds: parseInt(document.getElementById('ag-tools-max-rounds').value) || 3,
+    tool_timeout_sec: parseInt(document.getElementById('ag-tool-timeout-sec').value) || 30,
+    // Guardrails
+    guard_max_input: parseInt(document.getElementById('ag-guard-max-input').value) || 0,
+    guard_max_output: parseInt(document.getElementById('ag-guard-max-output').value) || 0,
+    guard_blocked_input: document.getElementById('ag-guard-blocked-input').value,
+    guard_blocked_output: document.getElementById('ag-guard-blocked-output').value,
+    guard_phone_list: document.getElementById('ag-guard-phone-list').value.trim(),
+    guard_phone_mode: document.getElementById('ag-guard-phone-mode').value,
+    guard_block_injection: document.getElementById('ag-guard-block-injection').checked,
+    guard_block_pii: document.getElementById('ag-guard-block-pii').checked,
+    guard_block_pii_phone: document.getElementById('ag-guard-block-pii-phone').checked,
+    guard_block_pii_email: document.getElementById('ag-guard-block-pii-email').checked,
+    guard_block_pii_cpf: document.getElementById('ag-guard-block-pii-cpf').checked,
+    knowledge_extract: document.getElementById('ag-knowledge-extract').checked
+  };
+
+  // Preserve enabled state when editing
+  if (editingId) {
+    const existing = agents.find(a => a.id === editingId);
+    if (existing) data.enabled = existing.enabled;
+  }
+
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+
+  try {
+    let r;
+    if (editingId) {
+      r = await apiFetch('/api/agents/' + editingId, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+    } else {
+      r = await apiFetch('/api/agents', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+    }
+    if (!r) { btn.disabled = false; return; }
+    if (r.ok) {
+      toast(editingId ? 'Agente atualizado!' : 'Agente criado!');
+      cancelEdit();
+      await loadAgents();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+  btn.disabled = false;
+}
+
+// -- Edit agent --
+
+function editAgent(id) {
+  const a = agents.find(x => x.id === id);
+  if (!a) return;
+  editingId = a.id;
+  document.getElementById('ag-edit-id').value = a.id;
+  document.getElementById('ag-name').value = a.name;
+  document.getElementById('ag-description').value = a.description;
+  document.getElementById('ag-system-prompt').value = a.system_prompt;
+  document.getElementById('ag-user-prompt').value = a.user_prompt;
+  document.getElementById('ag-model').value = a.model;
+  document.getElementById('ag-max-tokens').value = a.max_tokens;
+  document.getElementById('ag-base-url').value = a.base_url;
+  document.getElementById('ag-api-key').value = '';
+  document.getElementById('ag-chain-to').value = a.chain_to || 0;
+  document.getElementById('ag-chain-condition').value = a.chain_condition || '';
+  setRAGTagsFromString(a.rag_tags || '');
+  // RAG
+  document.getElementById('ag-rag-enabled').checked = !!a.rag_enabled;
+  document.getElementById('ag-rag-max-results').value = a.rag_max_results || 3;
+  document.getElementById('ag-rag-max-tokens').value = a.rag_max_tokens || 500;
+  document.getElementById('ag-rag-compressed').checked = !!a.rag_compressed;
+  document.getElementById('ag-rag-embeddings').checked = !!a.rag_embeddings;
+  document.getElementById('ag-rag-embedding-model').value = a.rag_embedding_model || '';
+  // Tools
+  document.getElementById('ag-tools-enabled').checked = !!a.tools_enabled;
+  document.getElementById('ag-tools-max-rounds').value = a.tools_max_rounds || 3;
+  document.getElementById('ag-tool-timeout-sec').value = a.tool_timeout_sec || 30;
+  // Guardrails
+  document.getElementById('ag-guard-phone-mode').value = a.guard_phone_mode || 'off';
+  document.getElementById('ag-guard-phone-list').value = a.guard_phone_list || '';
+  document.getElementById('ag-guard-max-input').value = a.guard_max_input || 0;
+  document.getElementById('ag-guard-max-output').value = a.guard_max_output || 0;
+  document.getElementById('ag-guard-blocked-input').value = a.guard_blocked_input || '';
+  document.getElementById('ag-guard-blocked-output').value = a.guard_blocked_output || '';
+  document.getElementById('ag-guard-block-injection').checked = !!a.guard_block_injection;
+  document.getElementById('ag-guard-block-pii').checked = !!a.guard_block_pii;
+  document.getElementById('ag-guard-block-pii-phone').checked = !!a.guard_block_pii_phone;
+  document.getElementById('ag-guard-block-pii-email').checked = !!a.guard_block_pii_email;
+  document.getElementById('ag-guard-block-pii-cpf').checked = !!a.guard_block_pii_cpf;
+  document.getElementById('ag-knowledge-extract').checked = !!a.knowledge_extract;
+
+  // Update UI state
+  document.getElementById('form-title').textContent = 'Editar Agente';
+  document.getElementById('save-btn').textContent = 'Salvar';
+  document.getElementById('cancel-btn').style.display = 'inline-block';
+  document.getElementById('form-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+// -- Cancel edit / reset form --
+
+function cancelEdit() {
+  editingId = null;
+  document.getElementById('ag-edit-id').value = '';
+  document.getElementById('ag-name').value = '';
+  document.getElementById('ag-description').value = '';
+  document.getElementById('ag-system-prompt').value = '';
+  document.getElementById('ag-user-prompt').value = '';
+  document.getElementById('ag-model').value = 'gpt-4.1-mini';
+  document.getElementById('ag-max-tokens').value = '1024';
+  document.getElementById('ag-base-url').value = '';
+  document.getElementById('ag-api-key').value = '';
+  document.getElementById('ag-chain-to').value = '0';
+  document.getElementById('ag-chain-condition').value = '';
+  setRAGTagsFromString('');
+  // RAG
+  document.getElementById('ag-rag-enabled').checked = false;
+  document.getElementById('ag-rag-max-results').value = '3';
+  document.getElementById('ag-rag-max-tokens').value = '500';
+  document.getElementById('ag-rag-compressed').checked = false;
+  document.getElementById('ag-rag-embeddings').checked = false;
+  document.getElementById('ag-rag-embedding-model').value = '';
+  // Tools
+  document.getElementById('ag-tools-enabled').checked = false;
+  document.getElementById('ag-tools-max-rounds').value = '3';
+  document.getElementById('ag-tool-timeout-sec').value = '30';
+  // Guardrails
+  document.getElementById('ag-guard-phone-mode').value = 'off';
+  document.getElementById('ag-guard-phone-list').value = '';
+  document.getElementById('ag-guard-max-input').value = '2000';
+  document.getElementById('ag-guard-max-output').value = '3000';
+  document.getElementById('ag-guard-blocked-input').value = '';
+  document.getElementById('ag-guard-blocked-output').value = '';
+  document.getElementById('ag-guard-block-injection').checked = false;
+  document.getElementById('ag-guard-block-pii').checked = false;
+  document.getElementById('ag-guard-block-pii-phone').checked = false;
+  document.getElementById('ag-guard-block-pii-email').checked = false;
+  document.getElementById('ag-guard-block-pii-cpf').checked = false;
+  document.getElementById('ag-knowledge-extract').checked = false;
+
+  document.getElementById('form-title').textContent = 'Adicionar Agente';
+  document.getElementById('save-btn').textContent = 'Adicionar';
+  document.getElementById('cancel-btn').style.display = 'none';
+}
+
+// -- Delete agent --
+
+async function deleteAgent(id) {
+  if (!confirm('Excluir este agente?')) return;
+  try {
+    const r = await apiFetch('/api/agents/' + id, { method: 'DELETE' });
+    if (!r) return;
+    if (r.ok) { toast('Agente excluido'); await loadAgents(); }
+    else toast('Erro: ' + await r.text());
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// -- RAG Tags multi-select --
+
+async function loadKnowledgeTags() {
+  try {
+    const r = await apiFetch('/api/knowledge-tags');
+    if (!r) return;
+    allKnowledgeTags = await r.json();
+  } catch(e) { console.error(e); }
+}
+
+function renderRAGTagsDropdown() {
+  const dd = document.getElementById('rag-tags-dropdown');
+  if (!allKnowledgeTags.length) {
+    dd.innerHTML = '<div style="padding:10px;color:var(--text-muted);font-size:13px;">Nenhuma tag na base de conhecimento</div>';
+    return;
+  }
+  dd.innerHTML = allKnowledgeTags.map(t => {
+    const checked = selectedRAGTags.has(t) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:13px;transition:background 0.1s;" onmouseenter="this.style.background='rgba(99,102,241,0.04)'" onmouseleave="this.style.background=''"><input type="checkbox" ${checked} onchange="toggleRAGTag('${escapeHtml(t)}',this.checked)" style="accent-color:var(--accent);cursor:pointer;">${escapeHtml(t)}</label>`;
+  }).join('');
+}
+
+function toggleRAGTag(tag, on) {
+  if (on) selectedRAGTags.add(tag); else selectedRAGTags.delete(tag);
+  syncRAGTags();
+}
+
+function syncRAGTags() {
+  document.getElementById('ag-rag-tags').value = [...selectedRAGTags].join(', ');
+  const wrap = document.getElementById('rag-tags-wrap');
+  const ph = document.getElementById('rag-tags-placeholder');
+  // Remove old pills
+  wrap.querySelectorAll('.rag-pill').forEach(el => el.remove());
+  if (selectedRAGTags.size === 0) {
+    ph.style.display = '';
+  } else {
+    ph.style.display = 'none';
+    for (const t of selectedRAGTags) {
+      const pill = document.createElement('span');
+      pill.className = 'rag-pill';
+      pill.innerHTML = escapeHtml(t) + `<span class="pill-x" onclick="event.stopPropagation();toggleRAGTag('${escapeHtml(t)}',false);renderRAGTagsDropdown();">&times;</span>`;
+      wrap.appendChild(pill);
+    }
+  }
+}
+
+function setRAGTagsFromString(csv) {
+  selectedRAGTags.clear();
+  if (csv) csv.split(',').forEach(t => { t = t.trim(); if (t) selectedRAGTags.add(t); });
+  syncRAGTags();
+  renderRAGTagsDropdown();
+}
+
+// Toggle dropdown visibility on wrap click, close on outside click
+(function() {
+  const wrap = document.getElementById('rag-tags-wrap');
+  const dd = document.getElementById('rag-tags-dropdown');
+  wrap.addEventListener('click', function(e) {
+    e.stopPropagation();
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+  });
+  dd.addEventListener('click', function(e) { e.stopPropagation(); });
+  document.addEventListener('click', function() { dd.style.display = 'none'; });
+})();
+
+// -- Init --
+
+loadKnowledgeTags().then(() => renderRAGTagsDropdown());
+loadAgents();
+
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

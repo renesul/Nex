@@ -58,17 +58,18 @@ func (m *Memory) GetOrCreateSession(chatID string, timeoutMin int) (int64, bool,
 		chatID,
 	).Scan(&lastCreatedAt, &lastSessionID)
 
-	now := time.Now().Unix()
+	nowSec := time.Now().Unix()
+	newSessionID := time.Now().UnixMilli() // millis for uniqueness
 
 	if err == sql.ErrNoRows {
 		// First message from this contact
-		return now, true, 0
+		return newSessionID, true, 0
 	}
 
-	elapsed := now - lastCreatedAt
+	elapsed := nowSec - lastCreatedAt
 	if elapsed > int64(timeoutMin)*60 {
 		// Session timed out
-		return now, true, lastSessionID
+		return newSessionID, true, lastSessionID
 	}
 
 	return lastSessionID, false, 0
@@ -258,6 +259,63 @@ func (m *Memory) SetLastAssistantWAMsgID(chatID, waMsgID string) error {
 func (m *Memory) MarkReadByWAMsgID(waMsgID string) error {
 	_, err := m.db.Exec(`UPDATE messages SET read_at = unixepoch() WHERE wa_msg_id = ? AND read_at = 0`, waMsgID)
 	return err
+}
+
+// GetContactsPaginated returns a page of contacts with total count.
+func (m *Memory) GetContactsPaginated(limit, offset int) ([]types.Contact, int64, error) {
+	var total int64
+	m.db.QueryRow("SELECT COUNT(DISTINCT chat_id) FROM messages").Scan(&total)
+
+	rows, err := m.db.Query(`
+		SELECT m.chat_id, m.content, m.created_at, m.session_id
+		FROM messages m
+		INNER JOIN (
+			SELECT chat_id, MAX(id) as max_id
+			FROM messages GROUP BY chat_id
+		) latest ON m.id = latest.max_id
+		ORDER BY m.created_at DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var contacts []types.Contact
+	for rows.Next() {
+		var c types.Contact
+		if err := rows.Scan(&c.ChatID, &c.LastMessage, &c.LastTime, &c.SessionID); err != nil {
+			return nil, 0, err
+		}
+		contacts = append(contacts, c)
+	}
+	return contacts, total, rows.Err()
+}
+
+// GetAllMessagesPaginated returns a page of messages for a chat ID with total count.
+func (m *Memory) GetAllMessagesPaginated(chatID string, limit, offset int) ([]types.Message, int64, error) {
+	var total int64
+	m.db.QueryRow("SELECT COUNT(*) FROM messages WHERE chat_id = ?", chatID).Scan(&total)
+
+	rows, err := m.db.Query(
+		`SELECT id, chat_id, role, content, session_id, created_at, wa_msg_id, read_at
+		 FROM messages WHERE chat_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?`,
+		chatID, limit, offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var msgs []types.Message
+	for rows.Next() {
+		var msg types.Message
+		if err := rows.Scan(&msg.ID, &msg.ChatID, &msg.Role, &msg.Content, &msg.SessionID, &msg.CreatedAt, &msg.WAMsgID, &msg.ReadAt); err != nil {
+			return nil, 0, err
+		}
+		msgs = append(msgs, msg)
+	}
+	return msgs, total, rows.Err()
 }
 
 // DeleteMessages removes all messages and summaries for a chat ID, then vacuums.

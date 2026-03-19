@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ferramentas - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.badge{display:inline-block;padding:4px 10px;background:#f0fdf4;color:#1e40af;border:1px solid #bbf7d0;border-radius:6px;font-size:12px;font-weight:500;cursor:default;margin:3px 2px;}
+.badge:hover{background:#dcfce7;}
+.tool-card{padding:14px 16px;margin-bottom:8px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;}
+.tool-card-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;}
+.tool-card-info{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.tool-card-name{font-weight:600;font-size:13px;color:#1a1a2e;}
+.tool-card-desc{font-size:12px;color:#6b7280;margin-top:2px;}
+.tool-card-actions{display:flex;gap:6px;}
+.pill{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;}
+.pill-on{background:#dcfce7;color:#166534;}
+.pill-off{background:#fef2f2;color:#991b1b;}
+.pill-method{background:#dbeafe;color:#1e40af;}
+.param-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;}
+.param-row input,.param-row select{padding:6px 8px;border:1px solid #e0e4e8;border-radius:6px;font-size:12px;}
+.btn-add-param{margin-top:6px;padding:4px 12px;font-size:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer;color:#1e40af;}
+.btn-remove-param{padding:2px 8px;font-size:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;}
+.btn-edit{padding:4px 10px;font-size:11px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;color:#0369a1;}
+.btn-delete{padding:4px 10px;font-size:11px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;cursor:pointer;color:#991b1b;}
+.btn-test{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;}
+.test-result{display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;font-size:13px;white-space:pre-wrap;max-height:200px;overflow-y:auto;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Ferramentas</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/conversas">Conversas</a>
+    <a href="/chat">Chat</a>
+    <a href="/agentes">Agentes</a>
+    <a href="/mcp-admin">MCP</a>
+    <a href="/databases">Databases</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/config">Config</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Built-in tools (read-only) -->
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      Ferramentas Nativas
+    </h2>
+    <div class="hint" style="margin-bottom:10px;">Ferramentas embutidas no sistema (somente leitura)</div>
+    <div id="builtin-tools" style="display:flex;flex-wrap:wrap;gap:4px;">
+      <span style="font-size:13px;color:#9ca3af;">Carregando...</span>
+    </div>
+  </div>
+
+  <!-- Custom tools form -->
+  <div class="card" id="form-card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <span id="form-title">Adicionar API Personalizada</span>
+    </h2>
+    <input type="hidden" id="ct-edit-id" value="">
+
+    <div class="field-row">
+      <div class="field">
+        <label>Nome (identificador)</label>
+        <input type="text" id="ct-name" placeholder="buscar_cep" pattern="[a-z][a-z0-9_]*">
+        <div class="hint">Letras minusculas, numeros e _ (ex: buscar_cep)</div>
+      </div>
+      <div class="field">
+        <label>Metodo</label>
+        <select id="ct-method" onchange="updateBodyVisibility()">
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Descricao</label>
+      <textarea id="ct-description" rows="2" placeholder="Busca endereco por CEP"></textarea>
+    </div>
+
+    <div class="field">
+      <label>URL (use &#123;&#123;param&#125;&#125; para parametros)</label>
+      <input type="text" id="ct-url" placeholder="https://viacep.com.br/ws/&#123;&#123;cep&#125;&#125;/json/">
+      <div class="hint">Use &#123;&#123;parametro&#125;&#125; para valores dinamicos na URL</div>
+    </div>
+
+    <div class="field">
+      <label>Cabecalhos (JSON)</label>
+      <textarea id="ct-headers" rows="2" placeholder='{"Authorization": "Bearer xxx"}'>{}</textarea>
+      <div class="hint">JSON com headers HTTP extras</div>
+    </div>
+
+    <div class="field" id="ct-body-field" style="display:none;">
+      <label>Corpo da requisicao (para POST, use &#123;&#123;param&#125;&#125;)</label>
+      <textarea id="ct-body" rows="3" placeholder='{"query": "&#123;&#123;termo&#125;&#125;"}'></textarea>
+    </div>
+
+    <div class="field">
+      <label>Parametros</label>
+      <div id="ct-params-list"></div>
+      <button type="button" class="btn-add-param" onclick="addParam()">+ Parametro</button>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Caminho na resposta (dot-notation)</label>
+        <input type="text" id="ct-response-path" placeholder="data.result">
+        <div class="hint">Caminho dot-notation para extrair resposta. Ex: data.items</div>
+      </div>
+      <div class="field">
+        <label>Limite de bytes</label>
+        <input type="number" id="ct-max-bytes" value="10000" min="1000" max="100000">
+      </div>
+    </div>
+
+    <div class="toggle" style="margin-bottom:12px;">
+      <input type="checkbox" id="ct-enabled" checked>
+      <label for="ct-enabled">Ferramenta ativa</label>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button class="btn" id="save-btn" onclick="saveTool()" style="flex:1;">Salvar API</button>
+      <button class="btn btn-test" id="test-btn" onclick="testTool()" style="flex:1;">Testar</button>
+      <button class="btn btn-secondary" id="cancel-btn" onclick="cancelEdit()" style="display:none;">Cancelar</button>
+    </div>
+
+    <div class="test-result" id="ct-test-result"></div>
+  </div>
+
+  <!-- Custom tools list -->
+  <div class="card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      APIs Personalizadas
+    </h2>
+    <div id="custom-tools-list">
+      <span style="font-size:13px;color:#9ca3af;">Carregando...</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let customTools = [];
+let editingId = null;
+let paramCount = 0;
+
+// --- Utility ---
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { toast('Sem permissao'); return null; }
+  return r;
+}
+
+async function doLogout() {
+  await fetch('/api/logout', {method:'POST'});
+  location.href = '/login';
+}
+
+// --- Built-in tools ---
+
+async function loadBuiltinTools() {
+  try {
+    const r = await apiFetch('/api/config');
+    if (!r) return;
+    const cfg = await r.json();
+    const tools = cfg.tools_list || [];
+    const container = document.getElementById('builtin-tools');
+    if (tools.length === 0) {
+      container.innerHTML = '<span style="font-size:13px;color:#9ca3af;">Nenhuma ferramenta nativa encontrada</span>';
+      return;
+    }
+    container.innerHTML = tools
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(t => `<span class="badge" title="${esc(t.description)}">${esc(t.name)}</span>`)
+      .join('');
+  } catch(e) { console.error('load builtin tools:', e); }
+}
+
+// --- Custom tools CRUD ---
+
+async function loadCustomTools() {
+  try {
+    const r = await apiFetch('/api/custom-tools');
+    if (!r) return;
+    customTools = await r.json();
+    renderCustomTools();
+  } catch(e) { console.error('load custom tools:', e); }
+}
+
+function renderCustomTools() {
+  const container = document.getElementById('custom-tools-list');
+  if (customTools.length === 0) {
+    container.innerHTML = '<div style="font-size:13px;color:#9ca3af;">Nenhuma API personalizada cadastrada.</div>';
+    return;
+  }
+  container.innerHTML = customTools.map(t => {
+    const params = safeParseJSON(t.parameters);
+    const paramNames = params.map(p => p.name).join(', ');
+    return `
+    <div class="tool-card">
+      <div class="tool-card-header">
+        <div class="tool-card-info">
+          <span class="tool-card-name">${esc(t.name)}</span>
+          <span class="pill ${t.enabled ? 'pill-on' : 'pill-off'}">${t.enabled ? 'ON' : 'OFF'}</span>
+          <span class="pill pill-method">${esc(t.method)}</span>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn-edit" onclick="startEdit(${t.id})">Editar</button>
+          <button class="btn-edit" onclick="testExisting(${t.id})">Testar</button>
+          <button class="btn-delete" onclick="deleteTool(${t.id})">Excluir</button>
+        </div>
+      </div>
+      <div class="tool-card-desc">${esc(t.description)}</div>
+      ${paramNames ? `<div style="margin-top:4px;font-size:11px;color:#94a3b8;">Params: ${esc(paramNames)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// --- Parameters ---
+
+function addParam(name, type_, desc, req) {
+  const list = document.getElementById('ct-params-list');
+  const idx = paramCount++;
+  const div = document.createElement('div');
+  div.className = 'param-row';
+  div.innerHTML = `
+    <input type="text" placeholder="nome" value="${name||''}" style="flex:2;" data-p-name="${idx}">
+    <select style="flex:1;" data-p-type="${idx}">
+      <option value="string" ${type_==='string'||!type_?'selected':''}>string</option>
+      <option value="number" ${type_==='number'?'selected':''}>number</option>
+      <option value="integer" ${type_==='integer'?'selected':''}>integer</option>
+      <option value="boolean" ${type_==='boolean'?'selected':''}>boolean</option>
+    </select>
+    <input type="text" placeholder="descricao" value="${desc||''}" style="flex:3;" data-p-desc="${idx}">
+    <label style="font-size:11px;display:flex;align-items:center;gap:2px;white-space:nowrap;">
+      <input type="checkbox" data-p-req="${idx}" ${req?'checked':''}> Obrig.
+    </label>
+    <button class="btn-remove-param" onclick="this.parentElement.remove()">x</button>
+  `;
+  list.appendChild(div);
+}
+
+function collectParams() {
+  const params = [];
+  document.querySelectorAll('[data-p-name]').forEach(el => {
+    const idx = el.dataset.pName;
+    const name = el.value.trim();
+    if (!name) return;
+    params.push({
+      name: name,
+      type: document.querySelector(`[data-p-type="${idx}"]`).value,
+      description: document.querySelector(`[data-p-desc="${idx}"]`).value.trim(),
+      required: document.querySelector(`[data-p-req="${idx}"]`).checked
+    });
+  });
+  return params;
+}
+
+// --- Form helpers ---
+
+function collectFormData() {
+  return {
+    name: document.getElementById('ct-name').value.trim(),
+    description: document.getElementById('ct-description').value.trim(),
+    method: document.getElementById('ct-method').value,
+    url_template: document.getElementById('ct-url').value.trim(),
+    headers: document.getElementById('ct-headers').value.trim() || '{}',
+    body_template: document.getElementById('ct-body').value.trim(),
+    parameters: JSON.stringify(collectParams()),
+    response_path: document.getElementById('ct-response-path').value.trim(),
+    max_bytes: parseInt(document.getElementById('ct-max-bytes').value) || 10000,
+    enabled: document.getElementById('ct-enabled').checked ? 1 : 0
+  };
+}
+
+function resetForm() {
+  editingId = null;
+  document.getElementById('ct-edit-id').value = '';
+  document.getElementById('ct-name').value = '';
+  document.getElementById('ct-description').value = '';
+  document.getElementById('ct-method').value = 'GET';
+  document.getElementById('ct-url').value = '';
+  document.getElementById('ct-headers').value = '{}';
+  document.getElementById('ct-body').value = '';
+  document.getElementById('ct-params-list').innerHTML = '';
+  document.getElementById('ct-response-path').value = '';
+  document.getElementById('ct-max-bytes').value = '10000';
+  document.getElementById('ct-enabled').checked = true;
+  document.getElementById('ct-test-result').style.display = 'none';
+  document.getElementById('form-title').textContent = 'Adicionar API Personalizada';
+  document.getElementById('save-btn').textContent = 'Salvar API';
+  document.getElementById('cancel-btn').style.display = 'none';
+  paramCount = 0;
+  updateBodyVisibility();
+}
+
+function updateBodyVisibility() {
+  document.getElementById('ct-body-field').style.display =
+    document.getElementById('ct-method').value === 'POST' ? 'block' : 'none';
+}
+
+function safeParseJSON(s) {
+  try { return JSON.parse(s || '[]'); } catch(e) { return []; }
+}
+
+// --- CRUD operations ---
+
+async function saveTool() {
+  const data = collectFormData();
+  if (!data.name || !data.description || !data.url_template) {
+    toast('Nome, descricao e URL sao obrigatorios');
+    return;
+  }
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  try {
+    let r;
+    if (editingId) {
+      r = await apiFetch('/api/custom-tools/' + editingId, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+    } else {
+      r = await apiFetch('/api/custom-tools', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+    }
+    if (!r) { btn.disabled = false; return; }
+    if (r.ok) {
+      toast(editingId ? 'API atualizada!' : 'API criada!');
+      resetForm();
+      await loadCustomTools();
+      await loadBuiltinTools();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+  btn.disabled = false;
+}
+
+function startEdit(id) {
+  const t = customTools.find(x => x.id === id);
+  if (!t) return;
+  editingId = t.id;
+  document.getElementById('ct-edit-id').value = t.id;
+  document.getElementById('ct-name').value = t.name;
+  document.getElementById('ct-description').value = t.description;
+  document.getElementById('ct-method').value = t.method;
+  document.getElementById('ct-url').value = t.url_template;
+  document.getElementById('ct-headers').value = t.headers;
+  document.getElementById('ct-body').value = t.body_template;
+  document.getElementById('ct-response-path').value = t.response_path;
+  document.getElementById('ct-max-bytes').value = t.max_bytes;
+  document.getElementById('ct-enabled').checked = !!t.enabled;
+  document.getElementById('ct-params-list').innerHTML = '';
+  paramCount = 0;
+  const params = safeParseJSON(t.parameters);
+  params.forEach(p => addParam(p.name, p.type, p.description, p.required));
+  document.getElementById('ct-test-result').style.display = 'none';
+  document.getElementById('form-title').textContent = 'Editar API Personalizada';
+  document.getElementById('save-btn').textContent = 'Atualizar API';
+  document.getElementById('cancel-btn').style.display = 'inline-block';
+  updateBodyVisibility();
+  document.getElementById('form-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  resetForm();
+}
+
+async function deleteTool(id) {
+  if (!confirm('Excluir esta API?')) return;
+  try {
+    const r = await apiFetch('/api/custom-tools/' + id, { method: 'DELETE' });
+    if (!r) return;
+    if (r.ok) {
+      toast('API excluida');
+      if (editingId === id) resetForm();
+      await loadCustomTools();
+      await loadBuiltinTools();
+    } else {
+      toast('Erro: ' + await r.text());
+    }
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// --- Test ---
+
+async function testTool() {
+  const resultDiv = document.getElementById('ct-test-result');
+  let id = editingId;
+
+  // If new tool, save first then test
+  if (!id) {
+    const data = collectFormData();
+    if (!data.name || !data.url_template) {
+      toast('Salve a API primeiro (nome e URL obrigatorios)');
+      return;
+    }
+    try {
+      const r = await apiFetch('/api/custom-tools', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+      if (!r || !r.ok) {
+        toast('Erro ao salvar: ' + (r ? await r.text() : 'sem resposta'));
+        return;
+      }
+      const res = await r.json();
+      id = res.id;
+      editingId = id;
+      document.getElementById('ct-edit-id').value = id;
+      document.getElementById('form-title').textContent = 'Editar API Personalizada';
+      document.getElementById('save-btn').textContent = 'Atualizar API';
+      document.getElementById('cancel-btn').style.display = 'inline-block';
+      await loadCustomTools();
+      await loadBuiltinTools();
+    } catch(e) { toast('Erro: ' + e.message); return; }
+  }
+
+  // Build default test args from parameters
+  const params = collectParams();
+  const args = {};
+  params.forEach(p => {
+    args[p.name] = (p.type === 'number' || p.type === 'integer') ? 0 : 'teste';
+  });
+
+  const testArgs = prompt('Argumentos JSON para teste:', JSON.stringify(args));
+  if (testArgs === null) return;
+
+  resultDiv.style.display = 'block';
+  resultDiv.textContent = 'Testando...';
+  resultDiv.style.borderColor = '#e5e7eb';
+
+  try {
+    const r = await apiFetch('/api/custom-tools/' + id + '/test', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ args: testArgs })
+    });
+    if (!r) return;
+    const res = await r.json();
+    resultDiv.textContent = res.ok ? res.result : 'Erro: ' + res.error;
+    resultDiv.style.borderColor = res.ok ? '#bbf7d0' : '#fecaca';
+  } catch(e) {
+    resultDiv.textContent = 'Erro: ' + e.message;
+    resultDiv.style.borderColor = '#fecaca';
+  }
+}
+
+async function testExisting(id) {
+  // Load tool into form then trigger test
+  startEdit(id);
+  // Small delay to let form populate
+  setTimeout(() => testTool(), 100);
+}
+
+// --- Init ---
+
+loadBuiltinTools();
+loadCustomTools();
+
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

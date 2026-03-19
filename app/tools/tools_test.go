@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"math"
+	"net"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -455,13 +457,13 @@ func TestReToolName(t *testing.T) {
 		{"a_b_c", true},
 		{"z0123456789", true},
 		{"", false},
-		{"MyTool", false},       // uppercase not allowed
-		{"1tool", false},        // starts with number
-		{"_tool", false},        // starts with underscore
-		{"tool-name", false},    // hyphen not allowed
-		{"tool name", false},    // space not allowed
-		{"tool!", false},        // special char
-		{"Tool", false},         // uppercase
+		{"MyTool", false},                 // uppercase not allowed
+		{"1tool", false},                  // starts with number
+		{"_tool", false},                  // starts with underscore
+		{"tool-name", false},              // hyphen not allowed
+		{"tool name", false},              // space not allowed
+		{"tool!", false},                  // special char
+		{"Tool", false},                   // uppercase
 		{string(make([]byte, 65)), false}, // too long (65 chars)
 	}
 
@@ -583,4 +585,118 @@ func searchStr(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// TestStripSQLComments
+// ---------------------------------------------------------------------------
+
+func TestStripSQLComments_LineComment(t *testing.T) {
+	got := stripSQLComments("SELECT 1 -- comment")
+	want := "SELECT 1 "
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestStripSQLComments_BlockComment(t *testing.T) {
+	got := stripSQLComments("SELECT /* hidden */ 1")
+	// Block comment is replaced with a single space, preserving surrounding spaces
+	want := "SELECT  " + " 1"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestStripSQLComments_NoComments(t *testing.T) {
+	input := "SELECT * FROM messages WHERE id = 1"
+	got := stripSQLComments(input)
+	if got != input {
+		t.Errorf("got %q, want %q", got, input)
+	}
+}
+
+func TestStripSQLComments_MultiLine(t *testing.T) {
+	input := "SELECT * FROM messages -- line comment\nWHERE /* block */ id = 1"
+	got := stripSQLComments(input)
+	// Block comment "/* block */" replaced with single space, so "WHERE " + " " + " id" = 3 spaces.
+	// Line comment stripped at "--".
+	want := "SELECT * FROM messages \nWHERE   id = 1"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestValidateReadOnlySQL (additional cases for sqlite_master/schema and comment bypass)
+// ---------------------------------------------------------------------------
+
+func TestValidateReadOnlySQL_SqliteMaster(t *testing.T) {
+	err := ValidateReadOnlySQL("SELECT * FROM sqlite_master")
+	if err == nil {
+		t.Fatal("expected error for sqlite_master, got nil")
+	}
+}
+
+func TestValidateReadOnlySQL_SqliteSchema(t *testing.T) {
+	err := ValidateReadOnlySQL("SELECT * FROM sqlite_schema")
+	if err == nil {
+		t.Fatal("expected error for sqlite_schema, got nil")
+	}
+}
+
+func TestValidateReadOnlySQL_CommentBypass(t *testing.T) {
+	// "config" is a blocked table; a line comment after it should not bypass the check
+	err := ValidateReadOnlySQL("SELECT * FROM config -- hidden")
+	if err == nil {
+		t.Fatal("expected error for blocked table config with line comment, got nil")
+	}
+}
+
+func TestValidateReadOnlySQL_BlockCommentBypass(t *testing.T) {
+	// "config" appears only inside a block comment, not in the actual query
+	err := ValidateReadOnlySQL("SELECT * /* from config */ FROM messages")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestValidateURLSafety
+// ---------------------------------------------------------------------------
+
+func TestValidateURLSafety_PublicURL(t *testing.T) {
+	err := validateURLSafety("https://api.example.com/data")
+	if err != nil {
+		// The function does DNS resolution; skip if DNS fails in test env
+		if dnsErr, ok := err.(*net.DNSError); ok {
+			t.Skipf("skipping due to DNS error: %v", dnsErr)
+		}
+		// Also skip if the error message indicates a lookup failure
+		if strings.Contains(err.Error(), "lookup") || strings.Contains(err.Error(), "DNS") || strings.Contains(err.Error(), "no such host") {
+			t.Skipf("skipping due to DNS resolution failure: %v", err)
+		}
+		t.Errorf("unexpected error for public URL: %v", err)
+	}
+}
+
+func TestValidateURLSafety_Localhost(t *testing.T) {
+	err := validateURLSafety("http://localhost:8080")
+	if err == nil {
+		t.Fatal("expected error for localhost URL, got nil")
+	}
+}
+
+func TestValidateURLSafety_PrivateIP(t *testing.T) {
+	err := validateURLSafety("http://192.168.1.1")
+	if err == nil {
+		t.Fatal("expected error for private IP URL, got nil")
+	}
+}
+
+func TestValidateURLSafety_Loopback(t *testing.T) {
+	err := validateURLSafety("http://127.0.0.1")
+	if err == nil {
+		t.Fatal("expected error for loopback URL, got nil")
+	}
 }

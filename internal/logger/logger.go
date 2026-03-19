@@ -23,12 +23,12 @@ type dbLogEntry struct {
 // Logger writes structured JSON logs to file (always) and to SQLite (when debug=true).
 // DB writes go through a buffered channel to preserve order without blocking.
 type Logger struct {
-	mu     sync.Mutex
-	LogDir string
-	db     *sql.DB
-	cfg    *config.Config
-	file   *os.File
-	today  string
+	mu      sync.Mutex
+	LogDir  string
+	db      *sql.DB
+	cfg     *config.Config
+	file    *os.File
+	today   string
 	dbCh    chan dbLogEntry
 	flushCh chan chan struct{}
 }
@@ -175,6 +175,10 @@ func (l *Logger) GetLogs(f types.LogFilter) ([]types.LogEntry, error) {
 		args = append(args, f.Limit)
 	} else {
 		query += " LIMIT 200"
+	}
+	if f.Offset > 0 {
+		query += " OFFSET ?"
+		args = append(args, f.Offset)
 	}
 
 	rows, err := l.db.Query(query, args...)

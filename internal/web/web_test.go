@@ -219,3 +219,56 @@ func TestStaticFileServing(t *testing.T) {
 		t.Fatalf("GET /static/nope.js: expected 404, got %d", rr2.Code)
 	}
 }
+
+// --- parsePagination tests ---
+
+func TestParsePagination_Defaults(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/something", nil)
+	page, limit, offset := parsePagination(req, 50)
+	if page != 1 {
+		t.Errorf("page = %d, want 1", page)
+	}
+	if limit != 50 {
+		t.Errorf("limit = %d, want 50", limit)
+	}
+	if offset != 0 {
+		t.Errorf("offset = %d, want 0", offset)
+	}
+}
+
+func TestParsePagination_CustomValues(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/something?page=3&limit=20", nil)
+	page, limit, offset := parsePagination(req, 50)
+	if page != 3 {
+		t.Errorf("page = %d, want 3", page)
+	}
+	if limit != 20 {
+		t.Errorf("limit = %d, want 20", limit)
+	}
+	if offset != 40 {
+		t.Errorf("offset = %d, want 40", offset)
+	}
+}
+
+func TestParsePagination_MaxLimit(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/something?limit=1000", nil)
+	_, limit, _ := parsePagination(req, 50)
+	if limit != 500 {
+		t.Errorf("limit = %d, want 500 (capped)", limit)
+	}
+}
+
+func TestParsePagination_InvalidValues(t *testing.T) {
+	// Negative page falls back to default
+	req := httptest.NewRequest("GET", "/api/something?page=-1&limit=abc", nil)
+	page, limit, offset := parsePagination(req, 50)
+	if page != 1 {
+		t.Errorf("page = %d, want 1 (default for invalid page)", page)
+	}
+	if limit != 50 {
+		t.Errorf("limit = %d, want 50 (default for invalid limit)", limit)
+	}
+	if offset != 0 {
+		t.Errorf("offset = %d, want 0", offset)
+	}
+}

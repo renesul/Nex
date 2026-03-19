@@ -79,6 +79,16 @@ func (d *Debouncer) Add(chatID, text, pushName string) {
 	})
 }
 
+// Stop cancels all pending timers and clears the pending map.
+func (d *Debouncer) Stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for id, p := range d.pending {
+		p.timer.Stop()
+		delete(d.pending, id)
+	}
+}
+
 func (d *Debouncer) fire(chatID string) {
 	d.mu.Lock()
 	p, exists := d.pending[chatID]

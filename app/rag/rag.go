@@ -145,6 +145,33 @@ func (r *RAG) ListEntries() ([]types.KnowledgeEntry, error) {
 	return entries, rows.Err()
 }
 
+// ListEntriesPaginated returns a page of knowledge entries with total count.
+func (r *RAG) ListEntriesPaginated(limit, offset int) ([]types.KnowledgeEntry, int64, error) {
+	var total int64
+	r.db.QueryRow("SELECT COUNT(*) FROM knowledge").Scan(&total)
+
+	rows, err := r.db.Query(
+		`SELECT id, title, content, tags, compressed, enabled,
+		 CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END,
+		 created_at, updated_at FROM knowledge ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+		limit, offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var entries []types.KnowledgeEntry
+	for rows.Next() {
+		var e types.KnowledgeEntry
+		if err := rows.Scan(&e.ID, &e.Title, &e.Content, &e.Tags, &e.Compressed, &e.Enabled, &e.HasEmbedding, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, total, rows.Err()
+}
+
 // listEntriesWithCompressed is an internal helper that returns full entry data including compressed field.
 func (r *RAG) listEntriesWithCompressed() ([]knowledgeEntryFull, error) {
 	rows, err := r.db.Query(

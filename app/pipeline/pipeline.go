@@ -3,6 +3,7 @@ package pipeline
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -26,6 +27,13 @@ type Pipeline struct {
 	logger *logger.Logger
 	guard  *guardrails.Guardrails
 	tools  *tools.ToolRegistry
+	chatMu sync.Map // chatID → *sync.Mutex
+}
+
+// getChatMu returns a per-chat mutex, creating one if needed.
+func (p *Pipeline) getChatMu(chatID string) *sync.Mutex {
+	v, _ := p.chatMu.LoadOrStore(chatID, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // NewPipeline creates a pipeline with all dependencies.
@@ -41,6 +49,11 @@ func (p *Pipeline) Process(chatID, text, contactName string) types.PipelineResul
 
 // ProcessWithAgent processes a message optionally forcing a specific agent by ID.
 func (p *Pipeline) ProcessWithAgent(chatID, text, contactName string, agentID int64) types.PipelineResult {
+	// Lock per chatID to prevent concurrent session manipulation
+	mu := p.getChatMu(chatID)
+	mu.Lock()
+	defer mu.Unlock()
+
 	// 1. Read global config snapshot
 	p.cfg.Mu.RLock()
 	timeoutMin := p.cfg.SessionTimeoutMin
@@ -137,12 +150,21 @@ func (p *Pipeline) ProcessWithAgent(chatID, text, contactName string, agentID in
 			if err == nil && len(oldMsgs) > 0 {
 				summary, err := p.ai.Summarize(model, oldMsgs)
 				if err == nil {
-					p.memory.SaveSummary(chatID, oldSessionID, summary)
-					p.logger.Log("pipeline_session_summarized", chatID, map[string]any{
-						"summary": summary, "old_session_id": oldSessionID,
-					})
+					if saveErr := p.memory.SaveSummary(chatID, oldSessionID, summary); saveErr != nil {
+						p.logger.Log("error", chatID, map[string]any{
+							"source": "pipeline", "message": "save_summary: " + saveErr.Error(),
+							"session_id": oldSessionID, "msg_count": len(oldMsgs),
+						})
+					} else {
+						p.logger.Log("pipeline_session_summarized", chatID, map[string]any{
+							"summary": summary, "old_session_id": oldSessionID, "msg_count": len(oldMsgs),
+						})
+					}
 				} else {
-					p.logger.Log("error", chatID, map[string]any{"source": "pipeline", "message": "summarize: " + err.Error()})
+					p.logger.Log("error", chatID, map[string]any{
+						"source": "pipeline", "message": "summarize: " + err.Error(),
+						"session_id": oldSessionID, "msg_count": len(oldMsgs),
+					})
 				}
 
 				// Trigger knowledge extraction in background
@@ -205,7 +227,10 @@ func (p *Pipeline) ProcessWithAgent(chatID, text, contactName string, agentID in
 
 		compact, err := p.ai.Summarize(model, older)
 		if err != nil {
-			p.logger.Log("error", chatID, map[string]any{"source": "pipeline", "message": "compact: " + err.Error()})
+			p.logger.Log("error", chatID, map[string]any{
+				"source": "pipeline", "message": "compact: " + err.Error(),
+				"session_id": sessionID, "msg_count": len(older),
+			})
 		} else {
 			p.logger.Log("pipeline_context_compacted", chatID, map[string]any{
 				"removed_msgs": len(older), "kept_msgs": len(history), "compact": compact,

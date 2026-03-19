@@ -112,3 +112,30 @@ func TestUpdateTimings(t *testing.T) {
 	}
 	d.mu.Unlock()
 }
+
+func TestStop(t *testing.T) {
+	var mu sync.Mutex
+	called := false
+
+	d := NewDebouncer(100*time.Millisecond, 500*time.Millisecond, func(chatID, text, pushName string) {
+		mu.Lock()
+		called = true
+		mu.Unlock()
+	})
+
+	d.Add("phone-stop", "should not fire", "Test")
+	d.Stop()
+
+	time.Sleep(250 * time.Millisecond)
+
+	mu.Lock()
+	if called {
+		t.Error("handler should NOT have been called after Stop")
+	}
+	mu.Unlock()
+}
+
+func TestStop_Empty(t *testing.T) {
+	d := NewDebouncer(100*time.Millisecond, 500*time.Millisecond, func(chatID, text, pushName string) {})
+	d.Stop() // must not panic
+}

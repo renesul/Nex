@@ -3,7 +3,9 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -24,11 +26,14 @@ type EmbCacheEntry struct {
 	At  time.Time
 }
 
+const DefaultLLMTimeout = 120 * time.Second
+
 // AI wraps an OpenAI-compatible client for reply and summarization.
 type AI struct {
-	mu     sync.RWMutex
-	client *openai.Client
-	logger *logger.Logger
+	mu      sync.RWMutex
+	client  *openai.Client
+	logger  *logger.Logger
+	timeout time.Duration
 	// Embedding cache — deterministic, safe to cache indefinitely within TTL
 	EmbMu    sync.Mutex
 	EmbCache map[string]EmbCacheEntry
@@ -38,10 +43,53 @@ type AI struct {
 func NewAI(baseURL, apiKey string, l *logger.Logger) *AI {
 	a := &AI{
 		logger:   l,
+		timeout:  DefaultLLMTimeout,
 		EmbCache: make(map[string]EmbCacheEntry),
 	}
 	a.updateClient(baseURL, apiKey)
 	return a
+}
+
+// llmContext returns a context with the configured LLM timeout.
+func (a *AI) llmContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), a.timeout)
+}
+
+// isRetryable returns true for transient errors (5xx, 429, network timeouts).
+// Does NOT retry on context.DeadlineExceeded (our own timeout).
+func isRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	// Network timeout
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	// OpenAI API errors: 429 or 5xx
+	var apiErr *openai.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.HTTPStatusCode == 429 || apiErr.HTTPStatusCode >= 500
+	}
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "status code: 429") ||
+		strings.Contains(errMsg, "status code: 5")
+}
+
+// doCreateChatCompletion wraps client.CreateChatCompletion with 1 retry on transient errors.
+func doCreateChatCompletion(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	resp, err := client.CreateChatCompletion(ctx, req)
+	if err != nil && isRetryable(err) {
+		time.Sleep(1 * time.Second)
+		resp, err = client.CreateChatCompletion(ctx, req)
+	}
+	return resp, err
 }
 
 // UpdateClient recreates the client when config changes.
@@ -168,15 +216,15 @@ func (a *AI) Reply(chatID, model string, maxTokens int, systemPrompt, userPrompt
 	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
 	a.logLLMRequest("reply", chatID, model, maxTokens, msgs, false, nil)
 
+	ctx, cancel := a.llmContext()
+	defer cancel()
+
 	start := time.Now()
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model:     model,
-			Messages:  msgs,
-			MaxTokens: maxTokens,
-		},
-	)
+	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+		Model:     model,
+		Messages:  msgs,
+		MaxTokens: maxTokens,
+	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("ai reply: %w", err)
@@ -204,20 +252,21 @@ func (a *AI) ReplyWithTools(
 
 	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
 
+	// Single context for the entire tool loop
+	ctx, cancel := a.llmContext()
+	defer cancel()
+
 	// Tool call loop
 	for round := 0; round < maxRounds; round++ {
 		a.logLLMRequest(fmt.Sprintf("reply_tools_round_%d", round), chatID, model, maxTokens, msgs, true, tools)
 
 		start := time.Now()
-		resp, err := client.CreateChatCompletion(
-			context.Background(),
-			openai.ChatCompletionRequest{
-				Model:     model,
-				Messages:  msgs,
-				MaxTokens: maxTokens,
-				Tools:     tools,
-			},
-		)
+		resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+			Model:     model,
+			Messages:  msgs,
+			MaxTokens: maxTokens,
+			Tools:     tools,
+		})
 		latency := time.Since(start).Milliseconds()
 		if err != nil {
 			return "", fmt.Errorf("ai reply (round %d): %w", round, err)
@@ -275,14 +324,11 @@ func (a *AI) ReplyWithTools(
 	// Exhausted rounds — final call without tools to get text response
 	a.logLLMRequest("reply_tools_final", chatID, model, maxTokens, msgs, false, nil)
 	startFinal := time.Now()
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model:     model,
-			Messages:  msgs,
-			MaxTokens: maxTokens,
-		},
-	)
+	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+		Model:     model,
+		Messages:  msgs,
+		MaxTokens: maxTokens,
+	})
 	latencyFinal := time.Since(startFinal).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("ai reply (final): %w", err)
@@ -316,15 +362,15 @@ func (a *AI) ReplyWithClient(chatID, baseURL, apiKey, model string, maxTokens in
 	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
 	a.logLLMRequest("reply_client", chatID, model, maxTokens, msgs, false, nil)
 
+	ctx, cancel := a.llmContext()
+	defer cancel()
+
 	start := time.Now()
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model:     model,
-			Messages:  msgs,
-			MaxTokens: maxTokens,
-		},
-	)
+	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+		Model:     model,
+		Messages:  msgs,
+		MaxTokens: maxTokens,
+	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("ai reply: %w", err)
@@ -349,19 +395,20 @@ func (a *AI) ReplyWithToolsClient(
 
 	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
 
+	// Single context for the entire tool loop
+	ctx, cancel := a.llmContext()
+	defer cancel()
+
 	for round := 0; round < maxRounds; round++ {
 		a.logLLMRequest(fmt.Sprintf("reply_tools_client_round_%d", round), chatID, model, maxTokens, msgs, true, tools)
 
 		startRound := time.Now()
-		resp, err := client.CreateChatCompletion(
-			context.Background(),
-			openai.ChatCompletionRequest{
-				Model:     model,
-				Messages:  msgs,
-				MaxTokens: maxTokens,
-				Tools:     tools,
-			},
-		)
+		resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+			Model:     model,
+			Messages:  msgs,
+			MaxTokens: maxTokens,
+			Tools:     tools,
+		})
 		latencyRound := time.Since(startRound).Milliseconds()
 		if err != nil {
 			return "", fmt.Errorf("ai reply (round %d): %w", round, err)
@@ -404,12 +451,9 @@ func (a *AI) ReplyWithToolsClient(
 
 	a.logLLMRequest("reply_tools_client_final", chatID, model, maxTokens, msgs, false, nil)
 	startFinal := time.Now()
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: model, Messages: msgs, MaxTokens: maxTokens,
-		},
-	)
+	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+		Model: model, Messages: msgs, MaxTokens: maxTokens,
+	})
 	latencyFinal := time.Since(startFinal).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("ai reply (final): %w", err)
@@ -446,15 +490,14 @@ func (a *AI) Summarize(model string, messages []types.Message) (string, error) {
 	}
 
 	a.logLLMRequest("summarize", "", model, 200, msgs, false, nil)
+	ctx, cancel := a.llmContext()
+	defer cancel()
 	start := time.Now()
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model:     model,
-			Messages:  msgs,
-			MaxTokens: 200,
-		},
-	)
+	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+		Model:     model,
+		Messages:  msgs,
+		MaxTokens: 200,
+	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("ai summarize: %w", err)
@@ -507,15 +550,14 @@ Regras:
 	}
 
 	a.logLLMRequest("extract_knowledge", "", model, 500, msgs, false, nil)
+	ctx, cancel := a.llmContext()
+	defer cancel()
 	start := time.Now()
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model:     model,
-			Messages:  msgs,
-			MaxTokens: 500,
-		},
-	)
+	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+		Model:     model,
+		Messages:  msgs,
+		MaxTokens: 500,
+	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return nil, fmt.Errorf("ai extract_knowledge: %w", err)
@@ -574,9 +616,11 @@ func (a *AI) Embed(model, text string) ([]float32, error) {
 			"label": "embed", "model": model, "text": text,
 		})
 	}
+	ctx, cancel := a.llmContext()
+	defer cancel()
 	startEmb := time.Now()
 	resp, err := client.CreateEmbeddings(
-		context.Background(),
+		ctx,
 		openai.EmbeddingRequestStrings{
 			Input: []string{text},
 			Model: openai.EmbeddingModel(model),
@@ -602,9 +646,28 @@ func (a *AI) Embed(model, text string) ([]float32, error) {
 	a.EmbCache[key] = EmbCacheEntry{Vec: vec, At: time.Now()}
 	if len(a.EmbCache) > EmbCacheMaxSize {
 		now := time.Now()
+		// First pass: evict expired entries
 		for k, e := range a.EmbCache {
 			if now.Sub(e.At) >= EmbCacheTTL {
 				delete(a.EmbCache, k)
+			}
+		}
+		// Second pass: if still over limit, evict oldest (pseudo-LRU)
+		for len(a.EmbCache) > EmbCacheMaxSize {
+			var oldestKey string
+			var oldestTime time.Time
+			first := true
+			for k, e := range a.EmbCache {
+				if first || e.At.Before(oldestTime) {
+					oldestKey = k
+					oldestTime = e.At
+					first = false
+				}
+			}
+			if oldestKey != "" {
+				delete(a.EmbCache, oldestKey)
+			} else {
+				break
 			}
 		}
 	}
@@ -630,15 +693,14 @@ func (a *AI) CompressRAG(model, content string) (string, error) {
 		},
 	}
 	a.logLLMRequest("compress", "", model, 200, compMsgs, false, nil)
+	ctx, cancel := a.llmContext()
+	defer cancel()
 	start := time.Now()
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model:     model,
-			Messages:  compMsgs,
-			MaxTokens: 200,
-		},
-	)
+	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+		Model:     model,
+		Messages:  compMsgs,
+		MaxTokens: 200,
+	})
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("ai compress: %w", err)

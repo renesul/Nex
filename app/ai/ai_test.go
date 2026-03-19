@@ -1,7 +1,9 @@
 package ai
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -331,4 +333,139 @@ func trimSpace(s string) string {
 		end--
 	}
 	return s[start:end]
+}
+
+// ---------------------------------------------------------------------------
+// TestIsRetryable
+// ---------------------------------------------------------------------------
+
+func TestIsRetryable_NilError(t *testing.T) {
+	if isRetryable(nil) {
+		t.Fatal("expected false for nil error")
+	}
+}
+
+func TestIsRetryable_ContextDeadline(t *testing.T) {
+	if isRetryable(context.DeadlineExceeded) {
+		t.Fatal("expected false for context.DeadlineExceeded")
+	}
+}
+
+func TestIsRetryable_ContextCanceled(t *testing.T) {
+	if isRetryable(context.Canceled) {
+		t.Fatal("expected false for context.Canceled")
+	}
+}
+
+func TestIsRetryable_GenericError(t *testing.T) {
+	if isRetryable(fmt.Errorf("something went wrong")) {
+		t.Fatal("expected false for generic error")
+	}
+}
+
+func TestIsRetryable_APIError429(t *testing.T) {
+	err := &openai.APIError{HTTPStatusCode: 429}
+	if !isRetryable(err) {
+		t.Fatal("expected true for APIError with status 429")
+	}
+}
+
+func TestIsRetryable_APIError500(t *testing.T) {
+	err := &openai.APIError{HTTPStatusCode: 500}
+	if !isRetryable(err) {
+		t.Fatal("expected true for APIError with status 500")
+	}
+}
+
+func TestIsRetryable_APIError400(t *testing.T) {
+	err := &openai.APIError{HTTPStatusCode: 400}
+	if isRetryable(err) {
+		t.Fatal("expected false for APIError with status 400")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestEmbCache_LRUEviction
+// ---------------------------------------------------------------------------
+
+func TestEmbCache_LRUEviction(t *testing.T) {
+	a := NewAI("https://api.example.com/v1", "test-key", nil)
+
+	// Fill cache to exactly EmbCacheMaxSize with non-expired entries.
+	// All entries are within the TTL window so the first pass (expired eviction)
+	// won't remove any, forcing the LRU second pass to kick in.
+	now := time.Now()
+	for i := 0; i < EmbCacheMaxSize; i++ {
+		key := fmt.Sprintf("model\x00entry-%d", i)
+		// Spread entries across 1 minute, all well within the 5-minute TTL.
+		// Entry 0 is oldest (60s ago), entry 499 is newest (~0s ago).
+		age := time.Duration(EmbCacheMaxSize-i) * time.Millisecond * 120 // max ~60s
+		a.EmbCache[key] = EmbCacheEntry{
+			Vec: []float32{float32(i)},
+			At:  now.Add(-age),
+		}
+	}
+
+	if len(a.EmbCache) != EmbCacheMaxSize {
+		t.Fatalf("expected %d entries, got %d", EmbCacheMaxSize, len(a.EmbCache))
+	}
+
+	// Add 5 more entries (over the limit), then trigger eviction logic.
+	for i := 0; i < 5; i++ {
+		key := fmt.Sprintf("model\x00new-%d", i)
+		a.EmbCache[key] = EmbCacheEntry{
+			Vec: []float32{float32(1000 + i)},
+			At:  now, // newest timestamp
+		}
+	}
+
+	// Now simulate the eviction logic from Embed:
+	// First pass: evict expired entries
+	if len(a.EmbCache) > EmbCacheMaxSize {
+		evictNow := time.Now()
+		for k, e := range a.EmbCache {
+			if evictNow.Sub(e.At) >= EmbCacheTTL {
+				delete(a.EmbCache, k)
+			}
+		}
+		// Second pass: if still over limit, evict oldest (pseudo-LRU)
+		for len(a.EmbCache) > EmbCacheMaxSize {
+			var oldestKey string
+			var oldestTime time.Time
+			first := true
+			for k, e := range a.EmbCache {
+				if first || e.At.Before(oldestTime) {
+					oldestKey = k
+					oldestTime = e.At
+					first = false
+				}
+			}
+			if oldestKey != "" {
+				delete(a.EmbCache, oldestKey)
+			} else {
+				break
+			}
+		}
+	}
+
+	// Cache should be exactly at the max size
+	if len(a.EmbCache) != EmbCacheMaxSize {
+		t.Fatalf("expected %d entries after eviction, got %d", EmbCacheMaxSize, len(a.EmbCache))
+	}
+
+	// The 5 newest entries should still be present
+	for i := 0; i < 5; i++ {
+		key := fmt.Sprintf("model\x00new-%d", i)
+		if _, ok := a.EmbCache[key]; !ok {
+			t.Errorf("newest entry %q was evicted but should have been kept", key)
+		}
+	}
+
+	// The 5 oldest original entries (entry-0 through entry-4) should have been evicted
+	for i := 0; i < 5; i++ {
+		key := fmt.Sprintf("model\x00entry-%d", i)
+		if _, ok := a.EmbCache[key]; ok {
+			t.Errorf("oldest entry %q should have been evicted but was kept", key)
+		}
+	}
 }

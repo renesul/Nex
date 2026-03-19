@@ -3,7 +3,7 @@ SRC     = .
 TAGS    = fts5
 INSTALL = $(HOME)/.nex
 
-.PHONY: build test lint fmt check install generate run clean
+.PHONY: build test lint fmt check install generate run clean docker-build docker-run docker-stop
 
 build:
 	@pkill -x $(BINARY) 2>/dev/null && sleep 0.5 || true
@@ -39,3 +39,12 @@ run: build
 
 clean:
 	rm -f $(BINARY)
+
+docker-build:
+	docker build -t nex .
+
+docker-run:
+	docker compose up -d
+
+docker-stop:
+	docker compose down

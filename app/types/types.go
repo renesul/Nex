@@ -64,6 +64,7 @@ type LogFilter struct {
 	ChatID string
 	Since  int64
 	Limit  int
+	Offset int
 }
 
 // AuthUser represents a user in the users table.
@@ -209,9 +210,9 @@ type ExtDBConn struct {
 
 // MCPTool represents a discovered MCP tool mapped to OpenAI format.
 type MCPTool struct {
-	ServerName string     // prefix for tool name
-	Name       string     // original MCP tool name
-	FullName   string     // "servername_toolname" registered in ToolRegistry
+	ServerName string // prefix for tool name
+	Name       string // original MCP tool name
+	FullName   string // "servername_toolname" registered in ToolRegistry
 	Definition openai.Tool
 }
 

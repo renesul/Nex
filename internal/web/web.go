@@ -23,6 +23,7 @@ import (
 	"nex/app/tools"
 	"nex/app/types"
 	"nex/internal/auth"
+	"nex/internal/backup"
 	"nex/internal/config"
 	"nex/internal/debounce"
 	"nex/internal/logger"
@@ -43,6 +44,8 @@ type Web struct {
 	pipe      *pipeline.Pipeline
 	auth      *auth.Auth
 	mcpServer *tools.NexMCPServer
+	db        *sql.DB
+	backup    *backup.Backup
 	saveCfg   func() error
 }
 
@@ -60,6 +63,8 @@ type WebDeps struct {
 	Pipeline  *pipeline.Pipeline
 	Auth      *auth.Auth
 	MCPServer *tools.NexMCPServer
+	DB        *sql.DB
+	Backup    *backup.Backup
 	SaveCfg   func() error
 }
 
@@ -77,6 +82,43 @@ func serveTemplate(rw http.ResponseWriter, filename string) {
 func jsonResponse(rw http.ResponseWriter, data any) {
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(data)
+}
+
+// parsePagination extracts page and limit from query params, returning (page, limit, offset).
+func parsePagination(r *http.Request, defaultLimit int) (int, int, int) {
+	page := 1
+	limit := defaultLimit
+
+	if p := r.URL.Query().Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			page = v
+		}
+	}
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset := (page - 1) * limit
+	return page, limit, offset
+}
+
+// paginatedResponse wraps data with pagination metadata.
+func paginatedResponse(rw http.ResponseWriter, data any, total int64, page, limit int) {
+	totalPages := int(total) / limit
+	if int(total)%limit != 0 {
+		totalPages++
+	}
+	jsonResponse(rw, map[string]any{
+		"data":        data,
+		"total":       total,
+		"page":        page,
+		"limit":       limit,
+		"total_pages": totalPages,
+	})
 }
 
 // requirePOST returns true if the request method is POST, otherwise sends 405.
@@ -103,10 +145,13 @@ func SetupRoutes(mux *http.ServeMux, deps WebDeps) {
 		pipe:      deps.Pipeline,
 		auth:      deps.Auth,
 		mcpServer: deps.MCPServer,
+		db:        deps.DB,
+		backup:    deps.Backup,
 		saveCfg:   deps.SaveCfg,
 	}
 
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	mux.HandleFunc("/health", w.handleHealth)
 	mux.HandleFunc("/", w.handleRoot)
 	mux.HandleFunc("/config", w.handleConfigPage)
 	mux.HandleFunc("/conversas", w.handleConversas)
@@ -141,9 +186,15 @@ func SetupRoutes(mux *http.ServeMux, deps WebDeps) {
 	mux.HandleFunc("/api/agents", w.handleAgents)
 	mux.HandleFunc("/api/agents/", w.handleAgentByID)
 	mux.HandleFunc("/api/agent-routing", w.handleAgentRouting)
+	mux.HandleFunc("/agentes", w.handleAgentes)
+	mux.HandleFunc("/ferramentas", w.handleFerramentas)
+	mux.HandleFunc("/mcp-admin", w.handleMCPAdmin)
+	mux.HandleFunc("/databases", w.handleDatabases)
 	mux.HandleFunc("/relatorios", w.handleRelatorios)
 	mux.HandleFunc("/api/report", w.handleReport)
 	mux.HandleFunc("/api/report/clear", w.handleReportClear)
+	mux.HandleFunc("/api/backup", w.handleBackup)
+	mux.HandleFunc("/api/backups", w.handleBackupList)
 	// MCP server routes (outside web UI auth — have their own token auth)
 	if w.mcpServer != nil {
 		mux.Handle("/mcp/sse", w.mcpServer.SSEHandler())
@@ -154,6 +205,7 @@ func SetupRoutes(mux *http.ServeMux, deps WebDeps) {
 	mux.HandleFunc("/api/login", w.auth.HandleLogin)
 	mux.HandleFunc("/api/logout", w.auth.HandleLogout)
 	mux.HandleFunc("/api/auth/status", w.auth.HandleAuthStatus)
+	mux.HandleFunc("/api/auth/change-password", w.auth.HandleChangePassword)
 	mux.HandleFunc("/api/users", w.auth.HandleUsers)
 	mux.HandleFunc("/api/users/", w.auth.HandleUserByID)
 }
@@ -166,6 +218,80 @@ func (w *Web) handleRoot(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, "/conversas", http.StatusFound)
 }
 
+func (w *Web) handleHealth(rw http.ResponseWriter, r *http.Request) {
+	status := "healthy"
+	httpCode := 200
+
+	// Check database
+	dbStatus := "ok"
+	if w.db != nil {
+		if err := w.db.QueryRow("SELECT 1").Err(); err != nil {
+			dbStatus = "error: " + err.Error()
+			status = "unhealthy"
+			httpCode = 503
+		}
+	}
+
+	// Check WhatsApp
+	waStatus := "disconnected"
+	waConnected := false
+	if w.wa != nil {
+		waConnected = w.wa.IsConnected()
+		if waConnected {
+			waStatus = "connected"
+		}
+	}
+	if !waConnected && status == "healthy" {
+		status = "degraded"
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(httpCode)
+	json.NewEncoder(rw).Encode(map[string]any{
+		"status":    status,
+		"database":  map[string]any{"status": dbStatus},
+		"whatsapp":  map[string]any{"status": waStatus, "connected": waConnected},
+		"timestamp": time.Now().Unix(),
+	})
+}
+
+func (w *Web) handleBackup(rw http.ResponseWriter, r *http.Request) {
+	if !requirePOST(rw, r) {
+		return
+	}
+	if !auth.RequireAdmin(rw, r) {
+		return
+	}
+	if w.backup == nil {
+		jsonResponse(rw, map[string]any{"error": "backup not configured"})
+		return
+	}
+	name, err := w.backup.Run()
+	if err != nil {
+		rw.WriteHeader(500)
+		jsonResponse(rw, map[string]any{"error": err.Error()})
+		return
+	}
+	jsonResponse(rw, map[string]any{"ok": true, "name": name})
+}
+
+func (w *Web) handleBackupList(rw http.ResponseWriter, r *http.Request) {
+	if !auth.RequireAdmin(rw, r) {
+		return
+	}
+	if w.backup == nil {
+		jsonResponse(rw, map[string]any{"backups": []any{}})
+		return
+	}
+	list, err := w.backup.List()
+	if err != nil {
+		rw.WriteHeader(500)
+		jsonResponse(rw, map[string]any{"error": err.Error()})
+		return
+	}
+	jsonResponse(rw, map[string]any{"backups": list})
+}
+
 func (w *Web) handleConfigPage(rw http.ResponseWriter, r *http.Request) {
 	serveTemplate(rw, "templates/index.html")
 }
@@ -176,6 +302,22 @@ func (w *Web) handleConversas(rw http.ResponseWriter, r *http.Request) {
 
 func (w *Web) handleLogs(rw http.ResponseWriter, r *http.Request) {
 	serveTemplate(rw, "templates/logs.html")
+}
+
+func (w *Web) handleAgentes(rw http.ResponseWriter, r *http.Request) {
+	serveTemplate(rw, "templates/agentes.html")
+}
+
+func (w *Web) handleFerramentas(rw http.ResponseWriter, r *http.Request) {
+	serveTemplate(rw, "templates/ferramentas.html")
+}
+
+func (w *Web) handleMCPAdmin(rw http.ResponseWriter, r *http.Request) {
+	serveTemplate(rw, "templates/mcp.html")
+}
+
+func (w *Web) handleDatabases(rw http.ResponseWriter, r *http.Request) {
+	serveTemplate(rw, "templates/databases.html")
 }
 
 func (w *Web) handleStatus(rw http.ResponseWriter, r *http.Request) {
@@ -254,11 +396,11 @@ func (w *Web) handleConfig(rw http.ResponseWriter, r *http.Request) {
 			"mcp_server_enabled": w.cfg.MCPServerEnabled,
 			"mcp_server_token":   w.cfg.MCPServerToken,
 			// General
-			"timezone":       w.cfg.Timezone,
-			"response_mode":  w.cfg.ResponseMode,
-			"groups_enabled": w.cfg.GroupsEnabled,
-			"group_list":         w.cfg.GroupList,
-			"whatsapp_agent_id":  w.cfg.WhatsAppAgentID,
+			"timezone":          w.cfg.Timezone,
+			"response_mode":     w.cfg.ResponseMode,
+			"groups_enabled":    w.cfg.GroupsEnabled,
+			"group_list":        w.cfg.GroupList,
+			"whatsapp_agent_id": w.cfg.WhatsAppAgentID,
 		}
 		w.cfg.Mu.RUnlock()
 		if w.tools != nil {
@@ -412,6 +554,19 @@ func (w *Web) handleTestAI(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Web) handleContacts(rw http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("page") != "" {
+		page, limit, offset := parsePagination(r, 50)
+		contacts, total, err := w.memory.GetContactsPaginated(limit, offset)
+		if err != nil {
+			http.Error(rw, err.Error(), 500)
+			return
+		}
+		if contacts == nil {
+			contacts = []types.Contact{}
+		}
+		paginatedResponse(rw, contacts, total, page, limit)
+		return
+	}
 	contacts, err := w.memory.GetContacts()
 	if err != nil {
 		http.Error(rw, err.Error(), 500)
@@ -427,6 +582,35 @@ func (w *Web) handleMessages(rw http.ResponseWriter, r *http.Request) {
 	chatID := r.URL.Query().Get("chat_id")
 	if chatID == "" {
 		http.Error(rw, "chat_id required", 400)
+		return
+	}
+
+	if r.URL.Query().Get("page") != "" {
+		page, limit, offset := parsePagination(r, 100)
+		messages, total, err := w.memory.GetAllMessagesPaginated(chatID, limit, offset)
+		if err != nil {
+			http.Error(rw, err.Error(), 500)
+			return
+		}
+		if messages == nil {
+			messages = []types.Message{}
+		}
+		summaries, _ := w.memory.GetSummaries(chatID)
+		if summaries == nil {
+			summaries = []types.Summary{}
+		}
+		totalPages := int(total) / limit
+		if int(total)%limit != 0 {
+			totalPages++
+		}
+		jsonResponse(rw, map[string]any{
+			"data":        messages,
+			"summaries":   summaries,
+			"total":       total,
+			"page":        page,
+			"limit":       limit,
+			"total_pages": totalPages,
+		})
 		return
 	}
 
@@ -515,6 +699,19 @@ func (w *Web) handleKnowledgeTags(rw http.ResponseWriter, r *http.Request) {
 func (w *Web) handleKnowledge(rw http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
+		if r.URL.Query().Get("page") != "" {
+			page, limit, offset := parsePagination(r, 50)
+			entries, total, err := w.rag.ListEntriesPaginated(limit, offset)
+			if err != nil {
+				http.Error(rw, err.Error(), 500)
+				return
+			}
+			if entries == nil {
+				entries = []types.KnowledgeEntry{}
+			}
+			paginatedResponse(rw, entries, total, page, limit)
+			return
+		}
 		entries, err := w.rag.ListEntries()
 		if err != nil {
 			http.Error(rw, err.Error(), 500)
@@ -1708,7 +1905,9 @@ func (w *Web) handleReport(rw http.ResponseWriter, r *http.Request) {
 				sb.WriteString("- Q: " + history[i].Content + "\n")
 				if i+1 < len(history) && history[i+1].Role == "assistant" {
 					// Extract insight from JSON
-					var parsed struct{ Insight string `json:"insight"` }
+					var parsed struct {
+						Insight string `json:"insight"`
+					}
 					if json.Unmarshal([]byte(history[i+1].Content), &parsed) == nil && parsed.Insight != "" {
 						sb.WriteString("  A: " + parsed.Insight + "\n")
 					}

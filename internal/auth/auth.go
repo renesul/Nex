@@ -23,19 +23,21 @@ import (
 
 // AuthUser represents a user in the users table.
 type AuthUser struct {
-	ID           int       `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	Role         string    `json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID                 int       `json:"id"`
+	Username           string    `json:"username"`
+	PasswordHash       string    `json:"-"`
+	Role               string    `json:"role"`
+	MustChangePassword bool      `json:"must_change_password,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // AuthSession holds session data for a logged-in user.
 type AuthSession struct {
-	UserID   int
-	Username string
-	Role     string
-	Expiry   int64 // Unix timestamp
+	UserID             int
+	Username           string
+	Role               string
+	MustChangePassword bool
+	Expiry             int64 // Unix timestamp
 }
 
 // Auth manages user authentication and sessions.
@@ -64,8 +66,13 @@ func NewAuth(db *sql.DB, l *logger.Logger) (*Auth, error) {
 		username      TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		role          TEXT NOT NULL DEFAULT 'user',
+		must_change_password INTEGER NOT NULL DEFAULT 0,
 		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
+	if err == nil {
+		// Migration: add column if it doesn't exist (idempotent)
+		db.Exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create users table: %w", err)
 	}
@@ -84,9 +91,12 @@ func NewAuth(db *sql.DB, l *logger.Logger) (*Auth, error) {
 	a := &Auth{db: db, logger: l, sessions: make(map[string]*AuthSession)}
 	a.loadSessions()
 	if !a.HasUsers() {
-		if _, err := a.CreateUser("admin", "admin123", "admin"); err != nil {
+		user, err := a.CreateUser("admin", "admin123", "admin")
+		if err != nil {
 			return nil, fmt.Errorf("create default admin: %w", err)
 		}
+		// Force password change on first login
+		db.Exec("UPDATE users SET must_change_password = 1 WHERE id = ?", user.ID)
 		log.Println("auth: default admin user created (admin/admin123) — change password after first login")
 	}
 	go a.cleanupLoop()
@@ -165,14 +175,16 @@ func (a *Auth) Authenticate(username, password string) (*AuthUser, error) {
 	var u AuthUser
 	var hash string
 	var ts string
-	err := a.db.QueryRow("SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?", username).
-		Scan(&u.ID, &u.Username, &hash, &u.Role, &ts)
+	var mustChange int
+	err := a.db.QueryRow("SELECT id, username, password_hash, role, COALESCE(must_change_password, 0), created_at FROM users WHERE username = ?", username).
+		Scan(&u.ID, &u.Username, &hash, &u.Role, &mustChange, &ts)
 	if err != nil {
 		return nil, errors.New("usuario ou senha incorretos")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
 		return nil, errors.New("usuario ou senha incorretos")
 	}
+	u.MustChangePassword = mustChange == 1
 	u.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", ts)
 	return &u, nil
 }
@@ -277,10 +289,11 @@ func (a *Auth) CreateSession(user *AuthUser) string {
 
 	a.mu.Lock()
 	a.sessions[token] = &AuthSession{
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
-		Expiry:   expiry,
+		UserID:             user.ID,
+		Username:           user.Username,
+		Role:               user.Role,
+		MustChangePassword: user.MustChangePassword,
+		Expiry:             expiry,
 	}
 	a.mu.Unlock()
 
@@ -351,7 +364,7 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		// Exempt paths
 		path := r.URL.Path
-		if path == "/login" || path == "/api/login" || path == "/api/auth/status" || strings.HasPrefix(path, "/mcp/") || strings.HasPrefix(path, "/static/") {
+		if path == "/login" || path == "/api/login" || path == "/api/auth/status" || path == "/health" || strings.HasPrefix(path, "/mcp/") || strings.HasPrefix(path, "/static/") {
 			next.ServeHTTP(rw, r)
 			return
 		}
@@ -365,6 +378,19 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		session := a.GetSession(cookie.Value)
 		if session == nil {
 			a.denyAccess(rw, r)
+			return
+		}
+
+		// If must change password, only allow change-password and logout
+		if session.MustChangePassword && path != "/api/auth/change-password" && path != "/api/logout" && path != "/api/auth/status" {
+			if strings.HasPrefix(path, "/api/") {
+				rw.Header().Set("Content-Type", "application/json")
+				rw.WriteHeader(403)
+				rw.Write([]byte(`{"error":"must_change_password"}`))
+				return
+			}
+			// Redirect to login page for non-API requests
+			http.Redirect(rw, r, "/login", 302)
 			return
 		}
 
@@ -432,8 +458,12 @@ func (a *Auth) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(authSessionTTL.Seconds()),
 	})
 
+	resp := map[string]any{"ok": true, "role": user.Role}
+	if user.MustChangePassword {
+		resp["must_change_password"] = true
+	}
 	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(map[string]any{"ok": true, "role": user.Role})
+	json.NewEncoder(rw).Encode(resp)
 }
 
 // HandleLogout destroys the session and clears the cookie.
@@ -457,6 +487,55 @@ func (a *Auth) HandleLogout(rw http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(map[string]any{"ok": true})
+}
+
+// HandleChangePassword handles POST /api/auth/change-password.
+func (a *Auth) HandleChangePassword(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(rw, "Method not allowed", 405)
+		return
+	}
+
+	s := GetSessionFromCtx(r)
+	if s == nil {
+		rw.WriteHeader(401)
+		rw.Write([]byte(`{"error":"unauthorized"}`))
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(rw, "JSON invalido", 400)
+		return
+	}
+
+	// Verify current password
+	var hash string
+	a.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", s.UserID).Scan(&hash)
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.CurrentPassword)) != nil {
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(400)
+		json.NewEncoder(rw).Encode(map[string]string{"error": "senha atual incorreta"})
+		return
+	}
+
+	if err := a.UpdatePassword(s.UserID, req.NewPassword); err != nil {
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(400)
+		json.NewEncoder(rw).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Clear force-change flag
+	a.db.Exec("UPDATE users SET must_change_password = 0 WHERE id = ?", s.UserID)
+	s.MustChangePassword = false
+
+	a.logEvent("auth_password_changed", "", map[string]any{"username": s.Username})
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(map[string]any{"ok": true})
 }
@@ -510,13 +589,17 @@ func (a *Auth) HandleAuthStatus(rw http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(rw).Encode(map[string]any{"enabled": true, "user": nil})
 		return
 	}
+	userData := map[string]any{
+		"id":       s.UserID,
+		"username": s.Username,
+		"role":     s.Role,
+	}
+	if s.MustChangePassword {
+		userData["must_change_password"] = true
+	}
 	json.NewEncoder(rw).Encode(map[string]any{
 		"enabled": true,
-		"user": map[string]any{
-			"id":       s.UserID,
-			"username": s.Username,
-			"role":     s.Role,
-		},
+		"user":    userData,
 	})
 }
 

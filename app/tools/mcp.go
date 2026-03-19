@@ -22,9 +22,9 @@ import (
 // MCPTool represents a discovered MCP tool mapped to OpenAI format.
 // This type is local to app/tools and uses openai.Tool directly.
 type MCPTool struct {
-	ServerName string     // prefix for tool name
-	Name       string     // original MCP tool name
-	FullName   string     // "servername_toolname" registered in ToolRegistry
+	ServerName string // prefix for tool name
+	Name       string // original MCP tool name
+	FullName   string // "servername_toolname" registered in ToolRegistry
 	Definition openai.Tool
 }
 

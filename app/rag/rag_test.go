@@ -60,7 +60,7 @@ func TestAddAndSearch(t *testing.T) {
 		t.Fatalf("expected positive ID, got %d", id)
 	}
 
-	results, err := r.Search("","golang", 10)
+	results, err := r.Search("", "golang", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestSearchMultipleEntries(t *testing.T) {
 	r.AddEntry("Go tutorial", "Go is a compiled language", "go")
 	r.AddEntry("Rust tutorial", "Rust is a systems language", "rust")
 
-	results, err := r.Search("","tutorial", 10)
+	results, err := r.Search("", "tutorial", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestSearchLimit(t *testing.T) {
 	r.AddEntry("Entry two", "content about alpha", "tag")
 	r.AddEntry("Entry three", "content about alpha", "tag")
 
-	results, err := r.Search("","alpha", 2)
+	results, err := r.Search("", "alpha", 2)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 
 	r.AddEntry("Test", "content", "tag")
 
-	results, err := r.Search("","", 10)
+	results, err := r.Search("", "", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestDeleteEntry(t *testing.T) {
 	}
 
 	// FTS5 should no longer find it
-	results, err := r.Search("","deleted", 10)
+	results, err := r.Search("", "deleted", 10)
 	if err != nil {
 		t.Fatalf("Search after delete: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestUpdateEntry(t *testing.T) {
 	}
 
 	// Old content should not be found
-	results, err := r.Search("","original", 10)
+	results, err := r.Search("", "original", 10)
 	if err != nil {
 		t.Fatalf("Search old: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestUpdateEntry(t *testing.T) {
 	}
 
 	// New content should be found
-	results, err = r.Search("","updated", 10)
+	results, err = r.Search("", "updated", 10)
 	if err != nil {
 		t.Fatalf("Search new: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestUpdateEntryDisabled(t *testing.T) {
 	}
 
 	// Search only returns enabled entries
-	results, err := r.Search("","findable", 10)
+	results, err := r.Search("", "findable", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -633,8 +633,8 @@ func TestSanitizeFTS5Query(t *testing.T) {
 	}{
 		{"hello world", `"hello" OR "world"`},
 		{"", ""},
-		{"a b", ""},              // single-char words are dropped
-		{"go*", `"go"`},          // special chars stripped
+		{"a b", ""},     // single-char words are dropped
+		{"go*", `"go"`}, // special chars stripped
 		{`"test" foo`, `"test" OR "foo"`},
 	}
 	for _, tc := range tests {
@@ -671,5 +671,38 @@ func TestTruncateContext(t *testing.T) {
 	result := TruncateContext(text, 3) // 3*4=12 chars
 	if len(result) > 12 {
 		t.Errorf("expected truncated result, got len=%d: %q", len(result), result)
+	}
+}
+
+func TestListEntriesPaginated(t *testing.T) {
+	r := newTestRAG(t)
+
+	for i := 0; i < 5; i++ {
+		_, err := r.AddEntry("Entry", "content", "tag")
+		if err != nil {
+			t.Fatalf("AddEntry %d: %v", i, err)
+		}
+	}
+
+	entries, total, err := r.ListEntriesPaginated(2, 0)
+	if err != nil {
+		t.Fatalf("ListEntriesPaginated(2,0): %v", err)
+	}
+	if total != 5 {
+		t.Errorf("total = %d, want 5", total)
+	}
+	if len(entries) != 2 {
+		t.Errorf("len(entries) = %d, want 2", len(entries))
+	}
+
+	entries, total, err = r.ListEntriesPaginated(2, 4)
+	if err != nil {
+		t.Fatalf("ListEntriesPaginated(2,4): %v", err)
+	}
+	if total != 5 {
+		t.Errorf("total = %d, want 5", total)
+	}
+	if len(entries) != 1 {
+		t.Errorf("len(entries) = %d, want 1", len(entries))
 	}
 }

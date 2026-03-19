@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -20,9 +21,11 @@ import (
 	"nex/app/rag"
 	"nex/app/tools"
 	"nex/internal/auth"
+	"nex/internal/backup"
 	"nex/internal/config"
 	"nex/internal/debounce"
 	"nex/internal/logger"
+	"nex/internal/ratelimit"
 	"nex/internal/web"
 	"nex/internal/whatsapp"
 )
@@ -120,7 +123,12 @@ func main() {
 		log.Println("MCP server enabled on /mcp/sse")
 	}
 
-	// 8. Create pipeline and debouncer
+	// 8. Create backup, rate limiter, pipeline, and debouncer
+	bk := backup.New(db, dataDir, 7, 24)
+	bk.Start()
+
+	rl := ratelimit.New(60, 120, 10.0/60.0, 15, 5)
+
 	pipe := pipeline.NewPipeline(cfg, mem, r, aiClient, l, guard, tr)
 
 	cfg.Mu.RLock()
@@ -135,6 +143,10 @@ func main() {
 	// 9. Register WhatsApp message handler
 	wa.OnMessage(func(chatID, text, pushName string) {
 		l.Log("main_whatsapp_msg_received", chatID, map[string]any{"content": text, "push_name": pushName})
+		if !rl.AllowMessage(chatID) {
+			l.Log("main_rate_limited", chatID, map[string]any{"source": "whatsapp"})
+			return
+		}
 		deb.Add(chatID, text, pushName)
 	})
 
@@ -160,12 +172,14 @@ func main() {
 		Pipeline:  pipe,
 		Auth:      a,
 		MCPServer: mcpServer,
+		DB:        db,
+		Backup:    bk,
 		SaveCfg: func() error {
 			return config.SaveConfig(db, cfg)
 		},
 	})
 
-	server := &http.Server{Addr: ":" + port, Handler: a.Middleware(mux)}
+	server := &http.Server{Addr: ":" + port, Handler: rl.HTTPMiddleware(a.Middleware(mux))}
 
 	// 11. Connect WhatsApp if API key is set
 	cfg.Mu.RLock()
@@ -192,12 +206,22 @@ func main() {
 	<-sigChan
 
 	fmt.Println("\nDesligando...")
+
+	// Graceful shutdown: HTTP first, then pipeline components
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutCancel()
+	if err := server.Shutdown(shutCtx); err != nil {
+		log.Println("HTTP shutdown error:", err)
+	}
+
+	deb.Stop()
+	rl.Stop()
+	bk.Stop()
 	tr.StopScheduler()
 	tr.StopMCPClients()
 	tr.StopExtDBs()
 	tr.Close()
 	wa.Disconnect()
-	server.Close()
 }
 
 func connectWhatsApp(wa *whatsapp.WhatsApp, l *logger.Logger) {
@@ -251,4 +275,3 @@ func handleDebouncedMessage(pipe *pipeline.Pipeline, wa *whatsapp.WhatsApp, mem 
 		mem.SetLastAssistantWAMsgID(chatID, waMsgID)
 	}
 }
-

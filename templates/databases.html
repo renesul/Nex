@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bancos de Dados - Nex</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* Database cards grid */
+.db-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin-top: 16px; }
+.db-card { position: relative; }
+.db-card .card { margin-bottom: 0; }
+.db-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.db-card-header h3 { font-size: 15px; font-weight: 600; color: var(--slate-800); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-driver-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 3px 8px; border-radius: var(--radius-sm); flex-shrink: 0;
+}
+.db-driver-badge.postgres { background: rgba(51,103,214,0.12); color: #336ed6; }
+.db-driver-badge.mysql { background: rgba(0,136,204,0.12); color: #0088cc; }
+.db-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; margin-bottom: 10px; }
+.db-status .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.db-status.ok .dot { background: var(--success); box-shadow: 0 0 6px rgba(16,185,129,0.4); }
+.db-status.ok { color: #065f46; }
+.db-status.err .dot { background: var(--danger); }
+.db-status.err { color: var(--danger); }
+.db-status.off .dot { background: var(--text-muted); }
+.db-status.off { color: var(--text-muted); }
+.db-info { font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.6; }
+.db-info span { display: inline-block; margin-right: 12px; }
+.db-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Schema modal */
+.schema-tree { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+.schema-table-name { font-weight: 700; color: var(--accent); }
+.schema-col { color: var(--text-secondary); }
+.schema-type { color: var(--text-muted); font-style: italic; }
+
+/* Password field toggle */
+.password-wrap { position: relative; }
+.password-wrap input { padding-right: 40px; }
+.password-toggle {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted);
+  padding: 4px;
+}
+
+@media (max-width: 768px) {
+  .db-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Bancos de Dados</h1>
+  <input type="checkbox" id="nav-toggle" style="display:none">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegacao"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/conversas">Conversas</a>
+    <a href="/chat">Chat</a>
+    <a href="/agentes">Agentes</a>
+    <a href="/ferramentas">Ferramentas</a>
+    <a href="/mcp-admin">MCP</a>
+    <a href="/databases">Databases</a>
+    <a href="/conhecimento">Conhecimento</a>
+    <a href="/relatorios">Relatórios</a>
+    <a href="/config">Config</a>
+    <a href="/logs">Logs</a>
+    <span id="auth-user" style="display:none"></span>
+    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Form card -->
+  <div class="card" id="form-card">
+    <h2>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+      <span id="form-title-text">Adicionar Banco de Dados</span>
+    </h2>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" id="db-name" placeholder="Ex: Producao, Analytics">
+      </div>
+      <div class="field">
+        <label>Driver</label>
+        <select id="db-driver">
+          <option value="postgres">PostgreSQL</option>
+          <option value="mysql">MySQL</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field" style="flex:2">
+        <label>Host</label>
+        <input type="text" id="db-host" placeholder="localhost">
+      </div>
+      <div class="field" style="flex:1">
+        <label>Porta</label>
+        <input type="number" id="db-port" placeholder="5432">
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Usuario</label>
+        <input type="text" id="db-username" placeholder="postgres">
+      </div>
+      <div class="field">
+        <label>Senha</label>
+        <div class="password-wrap">
+          <input type="password" id="db-password" placeholder="********">
+          <button type="button" class="password-toggle" onclick="togglePassword()">&#128065;</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Banco</label>
+        <input type="text" id="db-dbname" placeholder="mydb">
+      </div>
+      <div class="field">
+        <label>SSL Mode</label>
+        <select id="db-sslmode">
+          <option value="disable">disable</option>
+          <option value="require">require</option>
+          <option value="preferred">preferred</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Max Rows</label>
+        <input type="number" id="db-maxrows" placeholder="100" value="100">
+        <div class="hint">Limite de linhas retornadas por consulta</div>
+      </div>
+      <div class="field">
+        <label>Ativo</label>
+        <select id="db-enabled">
+          <option value="true">Sim</option>
+          <option value="false">Nao</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button class="btn" id="save-btn" onclick="saveDb()">Adicionar</button>
+      <button class="btn btn-secondary" id="test-btn" onclick="testConnection()">Testar Conexao</button>
+      <button class="btn btn-secondary" id="cancel-btn" onclick="cancelEdit()" style="display:none;">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Database cards -->
+  <div class="db-grid" id="db-grid">
+    <div class="card" style="text-align:center;color:var(--text-muted);padding:40px;">Carregando...</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Schema modal -->
+<div class="modal-overlay" id="schema-modal" style="display:none" onclick="if(event.target===this)closeSchemaModal()">
+  <div class="modal-box" style="max-width:700px;">
+    <h3 id="schema-modal-title">Schema</h3>
+    <div id="schema-modal-content" class="schema-tree" style="flex:1;overflow:auto;max-height:60vh;"></div>
+    <button class="btn btn-secondary" onclick="closeSchemaModal()">Fechar</button>
+  </div>
+</div>
+
+<script>
+let databases = [];
+let editingId = null;
+
+// ==================== Helpers ====================
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; return null; }
+  if (r.status === 403) { toast('Sem permissao'); return null; }
+  return r;
+}
+
+async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
+
+function togglePassword() {
+  const inp = document.getElementById('db-password');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// ==================== Form helpers ====================
+
+function getFormData() {
+  return {
+    name:     document.getElementById('db-name').value.trim(),
+    driver:   document.getElementById('db-driver').value,
+    host:     document.getElementById('db-host').value.trim(),
+    port:     parseInt(document.getElementById('db-port').value) || 0,
+    username: document.getElementById('db-username').value.trim(),
+    password: document.getElementById('db-password').value,
+    dbname:   document.getElementById('db-dbname').value.trim(),
+    ssl_mode: document.getElementById('db-sslmode').value,
+    max_rows: parseInt(document.getElementById('db-maxrows').value) || 100,
+    enabled:  document.getElementById('db-enabled').value === 'true'
+  };
+}
+
+function clearForm() {
+  document.getElementById('db-name').value = '';
+  document.getElementById('db-driver').value = 'postgres';
+  document.getElementById('db-host').value = '';
+  document.getElementById('db-port').value = '';
+  document.getElementById('db-username').value = '';
+  document.getElementById('db-password').value = '';
+  document.getElementById('db-password').type = 'password';
+  document.getElementById('db-dbname').value = '';
+  document.getElementById('db-sslmode').value = 'disable';
+  document.getElementById('db-maxrows').value = '100';
+  document.getElementById('db-enabled').value = 'true';
+}
+
+function fillForm(db) {
+  document.getElementById('db-name').value = db.name || '';
+  document.getElementById('db-driver').value = db.driver || 'postgres';
+  document.getElementById('db-host').value = db.host || '';
+  document.getElementById('db-port').value = db.port || '';
+  document.getElementById('db-username').value = db.username || '';
+  document.getElementById('db-password').value = db.password || '';
+  document.getElementById('db-password').type = 'password';
+  document.getElementById('db-dbname').value = db.dbname || '';
+  document.getElementById('db-sslmode').value = db.ssl_mode || 'disable';
+  document.getElementById('db-maxrows').value = db.max_rows || 100;
+  document.getElementById('db-enabled').value = db.enabled ? 'true' : 'false';
+}
+
+// ==================== CRUD ====================
+
+async function loadDatabases() {
+  try {
+    const r = await apiFetch('/api/ext-databases');
+    if (!r) return;
+    databases = await r.json() || [];
+    renderDatabases();
+  } catch(e) { console.error(e); }
+}
+
+function renderDatabases() {
+  const grid = document.getElementById('db-grid');
+
+  if (!databases.length) {
+    grid.innerHTML = '<div class="card" style="text-align:center;color:var(--text-muted);padding:40px;">Nenhum banco de dados configurado</div>';
+    return;
+  }
+
+  grid.innerHTML = databases.map(db => {
+    // Connection status
+    let statusClass = 'off', statusText = 'Desativado';
+    if (db.enabled) {
+      if (db.connected) { statusClass = 'ok'; statusText = 'Conectado'; }
+      else { statusClass = 'err'; statusText = db.error || 'Desconectado'; }
+    }
+
+    const driverClass = db.driver === 'postgres' ? 'postgres' : 'mysql';
+    const driverLabel = db.driver === 'postgres' ? 'PostgreSQL' : 'MySQL';
+    const hostPort = escapeHtml(db.host) + (db.port ? ':' + db.port : '');
+
+    return `<div class="db-card">
+      <div class="card">
+        <div class="db-card-header">
+          <h3 title="${escapeHtml(db.name)}">${escapeHtml(db.name)}</h3>
+          <span class="db-driver-badge ${driverClass}">${driverLabel}</span>
+        </div>
+        <div class="db-status ${statusClass}">
+          <span class="dot"></span>
+          <span>${escapeHtml(statusText)}</span>
+        </div>
+        <div class="db-info">
+          <span>Host: <strong>${hostPort}</strong></span>
+          <span>Banco: <strong>${escapeHtml(db.dbname)}</strong></span>
+          <span>SSL: ${escapeHtml(db.ssl_mode)}</span>
+          <span>Max rows: ${db.max_rows || 100}</span>
+        </div>
+        <div class="db-actions">
+          ${db.enabled ? `<button class="btn btn-sm btn-secondary" onclick="reconnectDb(${db.id})">Reconectar</button>` : ''}
+          <button class="btn btn-sm btn-secondary" onclick="viewSchema(${db.id})">Schema</button>
+          <button class="btn btn-sm btn-secondary" onclick="startEdit(${db.id})">Editar</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDb(${db.id})">Excluir</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveDb() {
+  const data = getFormData();
+  if (!data.name || !data.host || !data.dbname) {
+    toast('Nome, host e banco sao obrigatorios');
+    return;
+  }
+
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+
+  try {
+    if (editingId) {
+      const r = await apiFetch('/api/ext-databases/' + editingId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      });
+      if (!r) { btn.disabled = false; return; }
+      if (!r.ok) { toast('Erro: ' + await r.text()); btn.disabled = false; return; }
+      toast('Banco atualizado!');
+      cancelEdit();
+    } else {
+      const r = await apiFetch('/api/ext-databases', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      });
+      if (!r) { btn.disabled = false; return; }
+      if (!r.ok) { toast('Erro: ' + await r.text()); btn.disabled = false; return; }
+      toast('Banco adicionado!');
+      clearForm();
+    }
+    await loadDatabases();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+  btn.disabled = false;
+}
+
+function startEdit(id) {
+  const db = databases.find(d => d.id === id);
+  if (!db) return;
+  editingId = id;
+  fillForm(db);
+  document.getElementById('form-title-text').textContent = 'Editar Banco de Dados';
+  document.getElementById('save-btn').textContent = 'Salvar';
+  document.getElementById('cancel-btn').style.display = 'inline-block';
+  document.getElementById('form-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  editingId = null;
+  clearForm();
+  document.getElementById('form-title-text').textContent = 'Adicionar Banco de Dados';
+  document.getElementById('save-btn').textContent = 'Adicionar';
+  document.getElementById('cancel-btn').style.display = 'none';
+}
+
+async function deleteDb(id) {
+  const db = databases.find(d => d.id === id);
+  if (!confirm('Excluir o banco "' + (db ? db.name : id) + '"?')) return;
+  try {
+    const r = await apiFetch('/api/ext-databases/' + id, { method: 'DELETE' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); return; }
+    toast('Banco excluido');
+    await loadDatabases();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// ==================== Test connection ====================
+
+async function testConnection() {
+  const data = getFormData();
+  if (!data.host || !data.dbname) {
+    toast('Preencha host e banco para testar');
+    return;
+  }
+
+  const btn = document.getElementById('test-btn');
+  btn.disabled = true;
+  btn.textContent = 'Testando...';
+
+  try {
+    const r = await apiFetch('/api/ext-databases/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (!r) { btn.disabled = false; btn.textContent = 'Testar Conexao'; return; }
+    const result = await r.json();
+    if (result.ok || result.success) {
+      toast('Conexao OK!');
+    } else {
+      toast('Falha: ' + (result.error || 'erro desconhecido'));
+    }
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Testar Conexao';
+}
+
+// ==================== Reconnect ====================
+
+async function reconnectDb(id) {
+  try {
+    toast('Reconectando...');
+    const r = await apiFetch('/api/ext-databases/' + id + '/reconnect', { method: 'POST' });
+    if (!r) return;
+    if (!r.ok) { toast('Erro: ' + await r.text()); return; }
+    toast('Reconectado!');
+    await loadDatabases();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+// ==================== Schema ====================
+
+async function viewSchema(id) {
+  const db = databases.find(d => d.id === id);
+  document.getElementById('schema-modal-title').textContent = (db ? db.name : 'Banco') + ' — Schema';
+  document.getElementById('schema-modal-content').innerHTML = '<span style="color:var(--text-muted)">Carregando schema...</span>';
+  document.getElementById('schema-modal').style.display = 'flex';
+
+  try {
+    const r = await apiFetch('/api/ext-databases/' + id + '/schema');
+    if (!r) { closeSchemaModal(); return; }
+    if (!r.ok) {
+      document.getElementById('schema-modal-content').innerHTML = '<span style="color:var(--danger)">Erro: ' + escapeHtml(await r.text()) + '</span>';
+      return;
+    }
+    const schema = await r.json();
+    renderSchema(schema);
+  } catch(e) {
+    document.getElementById('schema-modal-content').innerHTML = '<span style="color:var(--danger)">Erro: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+function renderSchema(schema) {
+  const el = document.getElementById('schema-modal-content');
+
+  // Support both array of tables and object with tables key
+  const tables = Array.isArray(schema) ? schema : (schema.tables || []);
+
+  if (!tables.length) {
+    el.innerHTML = '<span style="color:var(--text-muted)">Nenhuma tabela encontrada</span>';
+    return;
+  }
+
+  let html = '';
+  for (const tbl of tables) {
+    const name = tbl.name || tbl.table_name || '?';
+    html += `<span class="schema-table-name">${escapeHtml(name)}</span>\n`;
+    const cols = tbl.columns || [];
+    for (const col of cols) {
+      const colName = col.name || col.column_name || '?';
+      const colType = col.type || col.data_type || '';
+      const nullable = col.nullable === false ? ' NOT NULL' : '';
+      const pk = col.primary_key ? ' PK' : '';
+      html += `  <span class="schema-col">${escapeHtml(colName)}</span> <span class="schema-type">${escapeHtml(colType)}${nullable}${pk}</span>\n`;
+    }
+    html += '\n';
+  }
+
+  el.innerHTML = html;
+}
+
+function closeSchemaModal() {
+  document.getElementById('schema-modal').style.display = 'none';
+}
+
+// ==================== Init ====================
+
+loadDatabases();
+
+// Auth status
+fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+  if(d.enabled&&d.user){
+    document.getElementById('auth-user').textContent=d.user.username;
+    document.getElementById('auth-user').style.display='';
+    document.getElementById('logout-link').style.display='';
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

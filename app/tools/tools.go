@@ -9,6 +9,7 @@ import (
 	"html"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -537,8 +538,39 @@ func (tr *ToolRegistry) DeleteScheduledMessages(chatID string) {
 	tr.db.Exec("DELETE FROM scheduled_messages WHERE chat_id = ?", chatID)
 }
 
+// validateURLSafety resolves a URL's hostname and rejects private/loopback IPs (SSRF protection).
+func validateURLSafety(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("URL invalida: %w", err)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL sem hostname")
+	}
+	if strings.EqualFold(host, "localhost") {
+		return fmt.Errorf("acesso a localhost bloqueado")
+	}
+
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("DNS lookup falhou: %w", err)
+	}
+
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("IP privado/loopback bloqueado: %s", ipStr)
+		}
+	}
+	return nil
+}
+
 // BlockedTables lists tables that contain sensitive data (API keys, etc).
-var BlockedTables = []string{"config", "custom_tools", "mcp_servers", "external_databases"}
+var BlockedTables = []string{"config", "custom_tools", "mcp_servers", "external_databases", "sqlite_master", "sqlite_schema"}
 
 // writeKeywords lists SQL keywords that modify data.
 var writeKeywords = []string{
@@ -546,9 +578,34 @@ var writeKeywords = []string{
 	"ATTACH", "DETACH", "PRAGMA", "VACUUM", "BEGIN", "COMMIT", "ROLLBACK",
 }
 
+// stripSQLComments removes SQL line comments (--) and block comments (/* */) before validation.
+func stripSQLComments(q string) string {
+	// Remove block comments
+	for {
+		start := strings.Index(q, "/*")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(q[start+2:], "*/")
+		if end == -1 {
+			q = q[:start]
+			break
+		}
+		q = q[:start] + " " + q[start+2+end+2:]
+	}
+	// Remove line comments
+	lines := strings.Split(q, "\n")
+	for i, line := range lines {
+		if idx := strings.Index(line, "--"); idx >= 0 {
+			lines[i] = line[:idx]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // ValidateReadOnlySQL checks that a query is a safe read-only SELECT.
 func ValidateReadOnlySQL(query string) error {
-	q := strings.TrimSpace(query)
+	q := strings.TrimSpace(stripSQLComments(query))
 	if q == "" {
 		return fmt.Errorf("query vazia")
 	}
@@ -581,6 +638,41 @@ func ValidateReadOnlySQL(query string) error {
 	return nil
 }
 
+// validateWithExplain uses EXPLAIN to detect tables accessed by a query and blocks sensitive ones.
+func (tr *ToolRegistry) validateWithExplain(query string) error {
+	rows, err := tr.readOnlyDB.Query("EXPLAIN " + query)
+	if err != nil {
+		return fmt.Errorf("EXPLAIN falhou: %s", err.Error())
+	}
+	defer rows.Close()
+
+	blockedSet := make(map[string]bool, len(BlockedTables))
+	for _, t := range BlockedTables {
+		blockedSet[strings.ToLower(t)] = true
+	}
+
+	for rows.Next() {
+		cols, _ := rows.Columns()
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			continue
+		}
+		// EXPLAIN output: col[1] is opcode, col[5] is p5/comment which may contain table names
+		// Check all string columns for blocked table references
+		for _, v := range vals {
+			s := fmt.Sprintf("%v", v)
+			if blockedSet[strings.ToLower(s)] {
+				return fmt.Errorf("tabela bloqueada detectada via EXPLAIN: %s", s)
+			}
+		}
+	}
+	return nil
+}
+
 func (tr *ToolRegistry) queryReadOnly(query string, maxRows int) ([]string, [][]string, error) {
 	if err := ValidateReadOnlySQL(query); err != nil {
 		return nil, nil, err
@@ -594,6 +686,11 @@ func (tr *ToolRegistry) queryReadOnly(query string, maxRows int) ([]string, [][]
 	if !strings.Contains(upperQ, "LIMIT") {
 		q := strings.TrimSuffix(strings.TrimSpace(query), ";")
 		query = fmt.Sprintf("%s LIMIT %d", q, maxRows)
+	}
+
+	// Second layer: EXPLAIN-based table detection
+	if err := tr.validateWithExplain(query); err != nil {
+		return nil, nil, err
 	}
 
 	rows, err := tr.readOnlyDB.Query(query)
@@ -1234,9 +1331,15 @@ func (tr *ToolRegistry) execWeather(chatID, args string) (string, error) {
 			} `json:"weatherDesc"`
 		} `json:"current_condition"`
 		NearestArea []struct {
-			AreaName []struct{ Value string `json:"value"` } `json:"areaName"`
-			Region   []struct{ Value string `json:"value"` } `json:"region"`
-			Country  []struct{ Value string `json:"value"` } `json:"country"`
+			AreaName []struct {
+				Value string `json:"value"`
+			} `json:"areaName"`
+			Region []struct {
+				Value string `json:"value"`
+			} `json:"region"`
+			Country []struct {
+				Value string `json:"value"`
+			} `json:"country"`
 		} `json:"nearest_area"`
 	}
 
@@ -1614,6 +1717,11 @@ func MakeCustomExecutor(ct types.CustomTool) func(chatID, args string) (string, 
 
 		if !strings.HasPrefix(finalURL, "http://") && !strings.HasPrefix(finalURL, "https://") {
 			return "Erro: URL invalida.", nil
+		}
+
+		// SSRF protection: validate resolved IPs
+		if err := validateURLSafety(finalURL); err != nil {
+			return fmt.Sprintf("Erro de seguranca: %s", err), nil
 		}
 
 		var bodyReader io.Reader
@@ -2505,6 +2613,12 @@ func ValidateCustomTool(ct types.CustomTool, builtins map[string]bool) error {
 		var h map[string]string
 		if err := json.Unmarshal([]byte(ct.Headers), &h); err != nil {
 			return fmt.Errorf("Headers JSON invalido: %s", err)
+		}
+	}
+	// SSRF check at save time (if URL has no placeholders)
+	if !strings.Contains(ct.URLTemplate, "{{") {
+		if err := validateURLSafety(ct.URLTemplate); err != nil {
+			return fmt.Errorf("URL bloqueada: %s", err)
 		}
 	}
 	return nil
