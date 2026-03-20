@@ -334,8 +334,8 @@ func (n *NextMCPServer) authMiddleware(next http.Handler) http.Handler {
 			auth := r.Header.Get("Authorization")
 			if auth != "Bearer "+token {
 				rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(401)
-			rw.Write([]byte(`{"error":"Unauthorized"}`))
+				rw.WriteHeader(401)
+				rw.Write([]byte(`{"error":"Unauthorized"}`))
 				return
 			}
 		}

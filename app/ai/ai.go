@@ -207,137 +207,23 @@ func (a *AI) buildMessages(systemPrompt, userPrompt, ragContext, summary string,
 	return msgs
 }
 
-// Reply sends a message to the AI and returns the response.
-func (a *AI) Reply(chatID, model string, maxTokens int, systemPrompt, userPrompt, ragContext, summary string, history []types.Message, userMsg string) (string, error) {
-	a.mu.RLock()
-	client := a.client
-	a.mu.RUnlock()
-
-	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
-	a.logLLMRequest("reply", chatID, model, maxTokens, msgs, false, nil)
-
-	ctx, cancel := a.llmContext()
-	defer cancel()
-
-	start := time.Now()
-	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
-		Model:     model,
-		Messages:  msgs,
-		MaxTokens: maxTokens,
-	})
-	latency := time.Since(start).Milliseconds()
-	if err != nil {
-		return "", fmt.Errorf("ai reply: %w", err)
-	}
-	a.logLLMResponse("reply", chatID, model, resp, latency)
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("ai reply: no choices returned")
-	}
-	return resp.Choices[0].Message.Content, nil
-}
-
-// ReplyWithTools sends a message with function calling support.
-// Loops until the AI produces a final text response or maxRounds is reached.
-func (a *AI) ReplyWithTools(
-	model string, maxTokens int,
-	systemPrompt, userPrompt, ragContext, summary string,
-	history []types.Message, userMsg string,
-	tools []openai.Tool,
-	executeTool func(name, chatID, args string) (string, error),
-	chatID string, maxRounds int, l *logger.Logger,
-) (string, error) {
-	a.mu.RLock()
-	client := a.client
-	a.mu.RUnlock()
-
-	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
-
-	// Single context for the entire tool loop
-	ctx, cancel := a.llmContext()
-	defer cancel()
-
-	// Tool call loop
-	for round := 0; round < maxRounds; round++ {
-		a.logLLMRequest(fmt.Sprintf("reply_tools_round_%d", round), chatID, model, maxTokens, msgs, true, tools)
-
-		start := time.Now()
-		resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
-			Model:     model,
-			Messages:  msgs,
-			MaxTokens: maxTokens,
-			Tools:     tools,
-		})
-		latency := time.Since(start).Milliseconds()
-		if err != nil {
-			return "", fmt.Errorf("ai reply (round %d): %w", round, err)
-		}
-		a.logLLMResponse(fmt.Sprintf("reply_tools_round_%d", round), chatID, model, resp, latency)
-		if len(resp.Choices) == 0 {
-			return "", fmt.Errorf("ai reply: no choices returned")
-		}
-
-		choice := resp.Choices[0]
-
-		// If no tool calls, return the text response
-		if choice.FinishReason != openai.FinishReasonToolCalls || len(choice.Message.ToolCalls) == 0 {
-			return choice.Message.Content, nil
-		}
-
-		// Append assistant message with tool calls
-		msgs = append(msgs, choice.Message)
-
-		// Execute each tool call
-		for _, tc := range choice.Message.ToolCalls {
-			start := time.Now()
-			result, execErr := executeTool(tc.Function.Name, chatID, tc.Function.Arguments)
-			latency := time.Since(start).Milliseconds()
-
-			if l != nil {
-				l.Log("ai_tool_call", chatID, map[string]any{
-					"tool":      tc.Function.Name,
-					"arguments": tc.Function.Arguments,
-					"round":     round,
-				})
-			}
-
-			if execErr != nil {
-				result = "Erro: " + execErr.Error()
-			}
-
-			if l != nil {
-				l.Log("ai_tool_result", chatID, map[string]any{
-					"tool":       tc.Function.Name,
-					"result":     result,
-					"error":      execErr != nil,
-					"latency_ms": latency,
-				})
-			}
-
-			msgs = append(msgs, openai.ChatCompletionMessage{
-				Role:       openai.ChatMessageRoleTool,
-				Content:    result,
-				ToolCallID: tc.ID,
-			})
-		}
-	}
-
-	// Exhausted rounds — final call without tools to get text response
-	a.logLLMRequest("reply_tools_final", chatID, model, maxTokens, msgs, false, nil)
-	startFinal := time.Now()
-	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
-		Model:     model,
-		Messages:  msgs,
-		MaxTokens: maxTokens,
-	})
-	latencyFinal := time.Since(startFinal).Milliseconds()
-	if err != nil {
-		return "", fmt.Errorf("ai reply (final): %w", err)
-	}
-	a.logLLMResponse("reply_tools_final", chatID, model, resp, latencyFinal)
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("ai reply: no choices returned")
-	}
-	return resp.Choices[0].Message.Content, nil
+// ReplyOpts holds all options for a unified Reply call.
+type ReplyOpts struct {
+	ChatID      string
+	BaseURL     string // if empty, uses global client
+	APIKey      string // if empty, uses global client
+	Model       string
+	MaxTokens   int
+	System      string
+	UserPrompt  string
+	RAGContext  string
+	Summary     string
+	History     []types.Message
+	UserMsg     string
+	Tools       []openai.Tool // nil = no tools
+	ExecuteTool func(name, chatID, args string) (string, error)
+	MaxRounds   int
+	Logger      *logger.Logger
 }
 
 // makeClient creates an openai.Client for the given base URL and API key.
@@ -355,65 +241,51 @@ func (a *AI) makeClient(baseURL, apiKey string) *openai.Client {
 	return openai.NewClientWithConfig(cfg)
 }
 
-// ReplyWithClient sends a message using an agent-specific or global client.
-func (a *AI) ReplyWithClient(chatID, baseURL, apiKey, model string, maxTokens int, systemPrompt, userPrompt, ragContext, summary string, history []types.Message, userMsg string) (string, error) {
-	client := a.makeClient(baseURL, apiKey)
-
-	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
-	a.logLLMRequest("reply_client", chatID, model, maxTokens, msgs, false, nil)
+// Reply sends a message to the AI and returns the response.
+// When opts.Tools is non-nil, loops calling tools until a text response or MaxRounds is exhausted.
+func (a *AI) Reply(opts ReplyOpts) (string, error) {
+	client := a.makeClient(opts.BaseURL, opts.APIKey)
+	msgs := a.buildMessages(opts.System, opts.UserPrompt, opts.RAGContext, opts.Summary, opts.History, opts.UserMsg)
 
 	ctx, cancel := a.llmContext()
 	defer cancel()
 
-	start := time.Now()
-	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
-		Model:     model,
-		Messages:  msgs,
-		MaxTokens: maxTokens,
-	})
-	latency := time.Since(start).Milliseconds()
-	if err != nil {
-		return "", fmt.Errorf("ai reply: %w", err)
-	}
-	a.logLLMResponse("reply_client", chatID, model, resp, latency)
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("ai reply: no choices returned")
-	}
-	return resp.Choices[0].Message.Content, nil
-}
-
-// ReplyWithToolsClient sends a message with function calling using an agent-specific or global client.
-func (a *AI) ReplyWithToolsClient(
-	baseURL, apiKey, model string, maxTokens int,
-	systemPrompt, userPrompt, ragContext, summary string,
-	history []types.Message, userMsg string,
-	tools []openai.Tool,
-	executeTool func(name, chatID, args string) (string, error),
-	chatID string, maxRounds int, l *logger.Logger,
-) (string, error) {
-	client := a.makeClient(baseURL, apiKey)
-
-	msgs := a.buildMessages(systemPrompt, userPrompt, ragContext, summary, history, userMsg)
-
-	// Single context for the entire tool loop
-	ctx, cancel := a.llmContext()
-	defer cancel()
-
-	for round := 0; round < maxRounds; round++ {
-		a.logLLMRequest(fmt.Sprintf("reply_tools_client_round_%d", round), chatID, model, maxTokens, msgs, true, tools)
-
-		startRound := time.Now()
+	// Simple reply (no tools)
+	if len(opts.Tools) == 0 {
+		a.logLLMRequest("reply", opts.ChatID, opts.Model, opts.MaxTokens, msgs, false, nil)
+		start := time.Now()
 		resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
-			Model:     model,
+			Model:     opts.Model,
 			Messages:  msgs,
-			MaxTokens: maxTokens,
-			Tools:     tools,
+			MaxTokens: opts.MaxTokens,
 		})
-		latencyRound := time.Since(startRound).Milliseconds()
+		latency := time.Since(start).Milliseconds()
+		if err != nil {
+			return "", fmt.Errorf("ai reply: %w", err)
+		}
+		a.logLLMResponse("reply", opts.ChatID, opts.Model, resp, latency)
+		if len(resp.Choices) == 0 {
+			return "", fmt.Errorf("ai reply: no choices returned")
+		}
+		return resp.Choices[0].Message.Content, nil
+	}
+
+	// Tool call loop
+	for round := 0; round < opts.MaxRounds; round++ {
+		a.logLLMRequest(fmt.Sprintf("reply_tools_round_%d", round), opts.ChatID, opts.Model, opts.MaxTokens, msgs, true, opts.Tools)
+
+		start := time.Now()
+		resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
+			Model:     opts.Model,
+			Messages:  msgs,
+			MaxTokens: opts.MaxTokens,
+			Tools:     opts.Tools,
+		})
+		latency := time.Since(start).Milliseconds()
 		if err != nil {
 			return "", fmt.Errorf("ai reply (round %d): %w", round, err)
 		}
-		a.logLLMResponse(fmt.Sprintf("reply_tools_client_round_%d", round), chatID, model, resp, latencyRound)
+		a.logLLMResponse(fmt.Sprintf("reply_tools_round_%d", round), opts.ChatID, opts.Model, resp, latency)
 		if len(resp.Choices) == 0 {
 			return "", fmt.Errorf("ai reply: no choices returned")
 		}
@@ -425,21 +297,21 @@ func (a *AI) ReplyWithToolsClient(
 
 		msgs = append(msgs, choice.Message)
 		for _, tc := range choice.Message.ToolCalls {
-			startTC := time.Now()
-			result, execErr := executeTool(tc.Function.Name, chatID, tc.Function.Arguments)
-			latencyTC := time.Since(startTC).Milliseconds()
+			start := time.Now()
+			result, execErr := opts.ExecuteTool(tc.Function.Name, opts.ChatID, tc.Function.Arguments)
+			latency := time.Since(start).Milliseconds()
 
-			if l != nil {
-				l.Log("ai_tool_call", chatID, map[string]any{
+			if opts.Logger != nil {
+				opts.Logger.Log("ai_tool_call", opts.ChatID, map[string]any{
 					"tool": tc.Function.Name, "arguments": tc.Function.Arguments, "round": round,
 				})
 			}
 			if execErr != nil {
 				result = "Erro: " + execErr.Error()
 			}
-			if l != nil {
-				l.Log("ai_tool_result", chatID, map[string]any{
-					"tool": tc.Function.Name, "result": result, "error": execErr != nil, "latency_ms": latencyTC,
+			if opts.Logger != nil {
+				opts.Logger.Log("ai_tool_result", opts.ChatID, map[string]any{
+					"tool": tc.Function.Name, "result": result, "error": execErr != nil, "latency_ms": latency,
 				})
 			}
 
@@ -449,16 +321,19 @@ func (a *AI) ReplyWithToolsClient(
 		}
 	}
 
-	a.logLLMRequest("reply_tools_client_final", chatID, model, maxTokens, msgs, false, nil)
+	// Exhausted rounds — final call without tools to get text response
+	a.logLLMRequest("reply_tools_final", opts.ChatID, opts.Model, opts.MaxTokens, msgs, false, nil)
 	startFinal := time.Now()
 	resp, err := doCreateChatCompletion(ctx, client, openai.ChatCompletionRequest{
-		Model: model, Messages: msgs, MaxTokens: maxTokens,
+		Model:     opts.Model,
+		Messages:  msgs,
+		MaxTokens: opts.MaxTokens,
 	})
 	latencyFinal := time.Since(startFinal).Milliseconds()
 	if err != nil {
 		return "", fmt.Errorf("ai reply (final): %w", err)
 	}
-	a.logLLMResponse("reply_tools_client_final", chatID, model, resp, latencyFinal)
+	a.logLLMResponse("reply_tools_final", opts.ChatID, opts.Model, resp, latencyFinal)
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("ai reply: no choices returned")
 	}

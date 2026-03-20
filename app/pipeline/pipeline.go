@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode"
 
+	openai "github.com/sashabaranov/go-openai"
+
 	"next/app/ai"
 	"next/app/guardrails"
 	"next/app/memory"
@@ -258,38 +260,26 @@ func (p *Pipeline) ProcessWithAgent(chatID, text, contactName string, agentID in
 		agentBaseURL = agent.BaseURL
 		agentAPIKey = agent.APIKey
 	}
-	useAgentClient := agentBaseURL != "" && agentAPIKey != ""
 
-	// Build tool executor with per-agent timeout
-	execFn := func(name, cID, args string) (string, error) {
-		return p.tools.ExecuteWithTimeout(name, cID, args, toolTimeoutSec)
-	}
-
+	// Build tool list and executor (nil when tools disabled)
+	var aiTools []openai.Tool
+	var execFn func(name, cID, args string) (string, error)
 	if toolsEnabled && p.tools != nil {
-		if useAgentClient {
-			response, err = p.ai.ReplyWithToolsClient(
-				agentBaseURL, agentAPIKey, model, maxTokens,
-				systemPrompt, userPrompt, ragContext, summary,
-				history, text,
-				p.tools.GetTools(), execFn,
-				chatID, toolsMaxRounds, p.logger,
-			)
-		} else {
-			response, err = p.ai.ReplyWithTools(
-				model, maxTokens,
-				systemPrompt, userPrompt, ragContext, summary,
-				history, text,
-				p.tools.GetTools(), execFn,
-				chatID, toolsMaxRounds, p.logger,
-			)
-		}
-	} else {
-		if useAgentClient {
-			response, err = p.ai.ReplyWithClient(chatID, agentBaseURL, agentAPIKey, model, maxTokens, systemPrompt, userPrompt, ragContext, summary, history, text)
-		} else {
-			response, err = p.ai.Reply(chatID, model, maxTokens, systemPrompt, userPrompt, ragContext, summary, history, text)
+		aiTools = p.tools.GetTools()
+		execFn = func(name, cID, args string) (string, error) {
+			return p.tools.ExecuteWithTimeout(name, cID, args, toolTimeoutSec)
 		}
 	}
+
+	response, err = p.ai.Reply(ai.ReplyOpts{
+		ChatID: chatID, BaseURL: agentBaseURL, APIKey: agentAPIKey,
+		Model: model, MaxTokens: maxTokens,
+		System: systemPrompt, UserPrompt: userPrompt,
+		RAGContext: ragContext, Summary: summary,
+		History: history, UserMsg: text,
+		Tools: aiTools, ExecuteTool: execFn,
+		MaxRounds: toolsMaxRounds, Logger: p.logger,
+	})
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
@@ -322,44 +312,29 @@ func (p *Pipeline) ProcessWithAgent(chatID, text, contactName string, agentID in
 			chainBaseURL = nextAgent.BaseURL
 			chainAPIKey = nextAgent.APIKey
 		}
-		useChainClient := chainBaseURL != "" && chainAPIKey != ""
 
-		// Per-agent settings for chained agent
-		chainToolsEnabled := nextAgent.ToolsEnabled
-		chainToolsMaxRounds := nextAgent.ToolsMaxRounds
-		chainToolTimeoutSec := nextAgent.ToolTimeoutSec
-		chainExecFn := func(name, cID, args string) (string, error) {
-			return p.tools.ExecuteWithTimeout(name, cID, args, chainToolTimeoutSec)
+		var chainTools []openai.Tool
+		var chainExecFn func(name, cID, args string) (string, error)
+		if nextAgent.ToolsEnabled && p.tools != nil {
+			chainTools = p.tools.GetTools()
+			chainTimeoutSec := nextAgent.ToolTimeoutSec
+			chainExecFn = func(name, cID, args string) (string, error) {
+				return p.tools.ExecuteWithTimeout(name, cID, args, chainTimeoutSec)
+			}
 		}
 
 		var chainResp string
 		var chainErr error
 		chainStart := time.Now()
-		if chainToolsEnabled && p.tools != nil {
-			if useChainClient {
-				chainResp, chainErr = p.ai.ReplyWithToolsClient(
-					chainBaseURL, chainAPIKey, nextAgent.Model, nextAgent.MaxTokens,
-					nextAgent.SystemPrompt, nextAgent.UserPrompt, ragContext, summary,
-					chainedHistory, text,
-					p.tools.GetTools(), chainExecFn,
-					chatID, chainToolsMaxRounds, p.logger,
-				)
-			} else {
-				chainResp, chainErr = p.ai.ReplyWithTools(
-					nextAgent.Model, nextAgent.MaxTokens,
-					nextAgent.SystemPrompt, nextAgent.UserPrompt, ragContext, summary,
-					chainedHistory, text,
-					p.tools.GetTools(), chainExecFn,
-					chatID, chainToolsMaxRounds, p.logger,
-				)
-			}
-		} else {
-			if useChainClient {
-				chainResp, chainErr = p.ai.ReplyWithClient(chatID, chainBaseURL, chainAPIKey, nextAgent.Model, nextAgent.MaxTokens, nextAgent.SystemPrompt, nextAgent.UserPrompt, ragContext, summary, chainedHistory, text)
-			} else {
-				chainResp, chainErr = p.ai.Reply(chatID, nextAgent.Model, nextAgent.MaxTokens, nextAgent.SystemPrompt, nextAgent.UserPrompt, ragContext, summary, chainedHistory, text)
-			}
-		}
+		chainResp, chainErr = p.ai.Reply(ai.ReplyOpts{
+			ChatID: chatID, BaseURL: chainBaseURL, APIKey: chainAPIKey,
+			Model: nextAgent.Model, MaxTokens: nextAgent.MaxTokens,
+			System: nextAgent.SystemPrompt, UserPrompt: nextAgent.UserPrompt,
+			RAGContext: ragContext, Summary: summary,
+			History: chainedHistory, UserMsg: text,
+			Tools: chainTools, ExecuteTool: chainExecFn,
+			MaxRounds: nextAgent.ToolsMaxRounds, Logger: p.logger,
+		})
 		if chainErr != nil {
 			p.logger.Log("error", chatID, map[string]any{"source": "pipeline", "message": "agent chain: " + chainErr.Error()})
 			break

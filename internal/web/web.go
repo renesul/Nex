@@ -26,6 +26,7 @@ import (
 	"next/internal/backup"
 	"next/internal/config"
 	"next/internal/debounce"
+	"next/internal/httputil"
 	"next/internal/logger"
 	"next/internal/whatsapp"
 )
@@ -78,36 +79,6 @@ func serveTemplate(rw http.ResponseWriter, filename string) {
 	tmpl.Execute(rw, nil)
 }
 
-// jsonResponse writes a JSON response with the correct Content-Type header.
-func jsonResponse(rw http.ResponseWriter, data any) {
-	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(data)
-}
-
-// jsonError writes a JSON error response with the given status code.
-func jsonError(rw http.ResponseWriter, message string, statusCode int) {
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(statusCode)
-	json.NewEncoder(rw).Encode(map[string]string{"error": message})
-}
-
-// jsonCreated writes a JSON response with 201 Created status.
-func jsonCreated(rw http.ResponseWriter, data any) {
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(201)
-	json.NewEncoder(rw).Encode(data)
-}
-
-// requireJSON returns true if the request has a JSON Content-Type, otherwise sends 415.
-func requireJSON(rw http.ResponseWriter, r *http.Request) bool {
-	ct := r.Header.Get("Content-Type")
-	if ct != "" && !strings.HasPrefix(ct, "application/json") {
-		jsonError(rw, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
-		return false
-	}
-	return true
-}
-
 // parsePagination extracts page and limit from query params, returning (page, limit, offset).
 func parsePagination(r *http.Request, defaultLimit int) (int, int, int) {
 	page := 1
@@ -136,7 +107,7 @@ func paginatedResponse(rw http.ResponseWriter, data any, total int64, page, limi
 	if int(total)%limit != 0 {
 		totalPages++
 	}
-	jsonResponse(rw, map[string]any{
+	httputil.JSONResponse(rw, map[string]any{
 		"data":        data,
 		"total":       total,
 		"page":        page,
@@ -148,7 +119,7 @@ func paginatedResponse(rw http.ResponseWriter, data any, total int64, page, limi
 // requirePOST returns true if the request method is POST, otherwise sends 405.
 func requireGET(rw http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "GET" {
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 		return false
 	}
 	return true
@@ -156,7 +127,7 @@ func requireGET(rw http.ResponseWriter, r *http.Request) bool {
 
 func requirePOST(rw http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "POST" {
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 		return false
 	}
 	return true
@@ -295,15 +266,15 @@ func (w *Web) handleBackup(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if w.backup == nil {
-		jsonResponse(rw, map[string]any{"error": "backup not configured"})
+		httputil.JSONResponse(rw, map[string]any{"error": "backup not configured"})
 		return
 	}
 	name, err := w.backup.Run()
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
-	jsonResponse(rw, map[string]any{"ok": true, "name": name})
+	httputil.JSONResponse(rw, map[string]any{"ok": true, "name": name})
 }
 
 func (w *Web) handleBackupList(rw http.ResponseWriter, r *http.Request) {
@@ -311,15 +282,15 @@ func (w *Web) handleBackupList(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if w.backup == nil {
-		jsonResponse(rw, map[string]any{"backups": []any{}})
+		httputil.JSONResponse(rw, map[string]any{"backups": []any{}})
 		return
 	}
 	list, err := w.backup.List()
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
-	jsonResponse(rw, map[string]any{"backups": list})
+	httputil.JSONResponse(rw, map[string]any{"backups": list})
 }
 
 func (w *Web) handleConfigPage(rw http.ResponseWriter, r *http.Request) {
@@ -363,7 +334,7 @@ func (w *Web) handleStatus(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	jsonResponse(rw, map[string]any{
+	httputil.JSONResponse(rw, map[string]any{
 		"connected": w.wa.IsConnected(),
 		"phone":     w.wa.GetPhoneNumber(),
 		"qr_code":   qrBase64,
@@ -375,10 +346,10 @@ func (w *Web) handleGroups(rw http.ResponseWriter, r *http.Request) {
 	}
 	groups, err := w.wa.GetGroups()
 	if err != nil {
-		jsonResponse(rw, map[string]any{"groups": []any{}, "error": err.Error()})
+		httputil.JSONResponse(rw, map[string]any{"groups": []any{}, "error": err.Error()})
 		return
 	}
-	jsonResponse(rw, map[string]any{"groups": groups})
+	httputil.JSONResponse(rw, map[string]any{"groups": groups})
 }
 
 func (w *Web) handleReconnect(rw http.ResponseWriter, r *http.Request) {
@@ -389,7 +360,7 @@ func (w *Web) handleReconnect(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.wa.Reconnect(w.logger)
-	jsonResponse(rw, map[string]any{"ok": true})
+	httputil.JSONResponse(rw, map[string]any{"ok": true})
 }
 
 func (w *Web) handleDisconnect(rw http.ResponseWriter, r *http.Request) {
@@ -404,7 +375,7 @@ func (w *Web) handleDisconnect(rw http.ResponseWriter, r *http.Request) {
 		w.logger.Log("error", "", map[string]any{"source": "web", "message": "logout: " + err.Error()})
 	}
 	w.logger.Log("web_whatsapp_logout", "", map[string]any{"reason": "manual_logout"})
-	jsonResponse(rw, map[string]any{"ok": true})
+	httputil.JSONResponse(rw, map[string]any{"ok": true})
 }
 
 func (w *Web) handleConfig(rw http.ResponseWriter, r *http.Request) {
@@ -442,12 +413,12 @@ func (w *Web) handleConfig(rw http.ResponseWriter, r *http.Request) {
 		if w.tools != nil {
 			resp["tools_list"] = w.tools.ListToolInfo()
 		}
-		jsonResponse(rw, resp)
+		httputil.JSONResponse(rw, resp)
 		return
 	}
 
 	if r.Method != "POST" {
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 		return
 	}
 
@@ -456,11 +427,11 @@ func (w *Web) handleConfig(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	var req map[string]any
-	if !requireJSON(rw, r) {
+	if !httputil.RequireJSON(rw, r) {
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(rw, "Invalid JSON", 400)
+		httputil.JSONError(rw, "Invalid JSON", 400)
 		return
 	}
 
@@ -557,7 +528,7 @@ func (w *Web) handleConfig(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := w.saveCfg(); err != nil {
-		jsonError(rw, "Save error: "+err.Error(), 500)
+		httputil.JSONError(rw, "Save error: "+err.Error(), 500)
 		return
 	}
 
@@ -572,7 +543,7 @@ func (w *Web) handleConfig(rw http.ResponseWriter, r *http.Request) {
 	}
 	w.logger.Log("web_config_saved", "", logData)
 
-	jsonResponse(rw, map[string]any{"ok": true, "changed": changedFields})
+	httputil.JSONResponse(rw, map[string]any{"ok": true, "changed": changedFields})
 }
 
 func (w *Web) handleTestAI(rw http.ResponseWriter, r *http.Request) {
@@ -584,12 +555,12 @@ func (w *Web) handleTestAI(rw http.ResponseWriter, r *http.Request) {
 		model = da.Model
 	}
 
-	resp, err := w.ai.Reply("", model, 50, "Respond with exactly: OK", "", "", "", nil, "test")
+	resp, err := w.ai.Reply(ai.ReplyOpts{Model: model, MaxTokens: 50, System: "Respond with exactly: OK", UserMsg: "test"})
 	if err != nil {
-		jsonResponse(rw, map[string]any{"ok": false, "error": err.Error()})
+		httputil.JSONResponse(rw, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	jsonResponse(rw, map[string]any{"ok": true, "response": resp, "model": model})
+	httputil.JSONResponse(rw, map[string]any{"ok": true, "response": resp, "model": model})
 }
 
 func (w *Web) handleContacts(rw http.ResponseWriter, r *http.Request) {
@@ -600,7 +571,7 @@ func (w *Web) handleContacts(rw http.ResponseWriter, r *http.Request) {
 		page, limit, offset := parsePagination(r, 50)
 		contacts, total, err := w.memory.GetContactsPaginated(limit, offset)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		if contacts == nil {
@@ -611,13 +582,13 @@ func (w *Web) handleContacts(rw http.ResponseWriter, r *http.Request) {
 	}
 	contacts, err := w.memory.GetContacts()
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 	if contacts == nil {
 		contacts = []types.Contact{}
 	}
-	jsonResponse(rw, contacts)
+	httputil.JSONResponse(rw, contacts)
 }
 
 func (w *Web) handleMessages(rw http.ResponseWriter, r *http.Request) {
@@ -626,7 +597,7 @@ func (w *Web) handleMessages(rw http.ResponseWriter, r *http.Request) {
 	}
 	chatID := r.URL.Query().Get("chat_id")
 	if chatID == "" {
-		jsonError(rw, "chat_id required", 400)
+		httputil.JSONError(rw, "chat_id required", 400)
 		return
 	}
 
@@ -634,7 +605,7 @@ func (w *Web) handleMessages(rw http.ResponseWriter, r *http.Request) {
 		page, limit, offset := parsePagination(r, 100)
 		messages, total, err := w.memory.GetAllMessagesPaginated(chatID, limit, offset)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		if messages == nil {
@@ -648,7 +619,7 @@ func (w *Web) handleMessages(rw http.ResponseWriter, r *http.Request) {
 		if int(total)%limit != 0 {
 			totalPages++
 		}
-		jsonResponse(rw, map[string]any{
+		httputil.JSONResponse(rw, map[string]any{
 			"data":        messages,
 			"summaries":   summaries,
 			"total":       total,
@@ -661,13 +632,13 @@ func (w *Web) handleMessages(rw http.ResponseWriter, r *http.Request) {
 
 	messages, err := w.memory.GetAllMessages(chatID)
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 
 	summaries, err := w.memory.GetSummaries(chatID)
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 
@@ -678,7 +649,7 @@ func (w *Web) handleMessages(rw http.ResponseWriter, r *http.Request) {
 		summaries = []types.Summary{}
 	}
 
-	jsonResponse(rw, map[string]any{
+	httputil.JSONResponse(rw, map[string]any{
 		"messages":  messages,
 		"summaries": summaries,
 	})
@@ -690,11 +661,11 @@ func (w *Web) handleAPILogs(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.logger.DeleteAllLogs()
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 		return
 	}
 	if r.Method != "GET" {
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 		return
 	}
 
@@ -711,13 +682,13 @@ func (w *Web) handleAPILogs(rw http.ResponseWriter, r *http.Request) {
 
 	logs, err := w.logger.GetLogs(filter)
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 	if logs == nil {
 		logs = []types.LogEntry{}
 	}
-	jsonResponse(rw, logs)
+	httputil.JSONResponse(rw, logs)
 }
 
 func (w *Web) handleConhecimento(rw http.ResponseWriter, r *http.Request) {
@@ -730,7 +701,7 @@ func (w *Web) handleKnowledgeTags(rw http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := w.rag.ListEntries()
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 	seen := map[string]bool{}
@@ -745,7 +716,7 @@ func (w *Web) handleKnowledgeTags(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(tags)
-	jsonResponse(rw, tags)
+	httputil.JSONResponse(rw, tags)
 }
 
 func (w *Web) handleKnowledge(rw http.ResponseWriter, r *http.Request) {
@@ -755,7 +726,7 @@ func (w *Web) handleKnowledge(rw http.ResponseWriter, r *http.Request) {
 			page, limit, offset := parsePagination(r, 50)
 			entries, total, err := w.rag.ListEntriesPaginated(limit, offset)
 			if err != nil {
-				jsonError(rw, err.Error(), 500)
+				httputil.JSONError(rw, err.Error(), 500)
 				return
 			}
 			if entries == nil {
@@ -766,13 +737,13 @@ func (w *Web) handleKnowledge(rw http.ResponseWriter, r *http.Request) {
 		}
 		entries, err := w.rag.ListEntries()
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		if entries == nil {
 			entries = []types.KnowledgeEntry{}
 		}
-		jsonResponse(rw, entries)
+		httputil.JSONResponse(rw, entries)
 
 	case "POST":
 		var req struct {
@@ -780,27 +751,27 @@ func (w *Web) handleKnowledge(rw http.ResponseWriter, r *http.Request) {
 			Content string `json:"content"`
 			Tags    string `json:"tags"`
 		}
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 		if req.Title == "" || req.Content == "" {
-			jsonError(rw, "title and content required", 400)
+			httputil.JSONError(rw, "title and content required", 400)
 			return
 		}
 		id, err := w.rag.AddEntry(req.Title, req.Content, req.Tags)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.logger.Log("web_knowledge_created", "", map[string]any{"id": id, "title": req.Title})
-		jsonCreated(rw, map[string]any{"ok": true, "id": id})
+		httputil.JSONCreated(rw, map[string]any{"ok": true, "id": id})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -813,7 +784,7 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/embed")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -827,14 +798,14 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 			embModel = da.RAGEmbeddingModel
 		}
 		if apiKey == "" {
-			jsonError(rw, "API key not configured", 400)
+			httputil.JSONError(rw, "API key not configured", 400)
 			return
 		}
 		if err := w.rag.EmbedEntry(w.ai, embModel, id); err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 		return
 	}
 
@@ -843,7 +814,7 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/process")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -859,12 +830,12 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 			embModel = da.RAGEmbeddingModel
 		}
 		if apiKey == "" {
-			jsonError(rw, "API key not configured", 400)
+			httputil.JSONError(rw, "API key not configured", 400)
 			return
 		}
 		compressed, err := w.rag.ProcessEntry(w.ai, model, embModel, id)
 		if err != nil && compressed == "" {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.logger.Log("web_knowledge_processed", "", map[string]any{"id": id, "compressed_tokens": len(compressed) / 4})
@@ -876,7 +847,7 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			resp["warning"] = err.Error()
 		}
-		jsonResponse(rw, resp)
+		httputil.JSONResponse(rw, resp)
 		return
 	}
 
@@ -885,7 +856,7 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/compress")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -899,15 +870,15 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 			model = da.Model
 		}
 		if apiKey == "" {
-			jsonError(rw, "API key not configured", 400)
+			httputil.JSONError(rw, "API key not configured", 400)
 			return
 		}
 		compressed, err := w.rag.CompressEntry(w.ai, model, id)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
-		jsonResponse(rw, map[string]any{
+		httputil.JSONResponse(rw, map[string]any{
 			"ok":                true,
 			"compressed":        compressed,
 			"tokens_original":   0, // placeholder
@@ -919,7 +890,7 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 	idStr := rest
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		jsonError(rw, "invalid id", 400)
+		httputil.JSONError(rw, "invalid id", 400)
 		return
 	}
 
@@ -931,30 +902,30 @@ func (w *Web) handleKnowledgeByID(rw http.ResponseWriter, r *http.Request) {
 			Tags    string `json:"tags"`
 			Enabled bool   `json:"enabled"`
 		}
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 		if err := w.rag.UpdateEntry(id, req.Title, req.Content, req.Tags, req.Enabled); err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.logger.Log("web_knowledge_updated", "", map[string]any{"id": id, "title": req.Title})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	case "DELETE":
 		if err := w.rag.DeleteEntry(id); err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.logger.Log("web_knowledge_deleted", "", map[string]any{"id": id})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -970,16 +941,16 @@ func (w *Web) handleKnowledgeCompressAll(rw http.ResponseWriter, r *http.Request
 		model = da.Model
 	}
 	if apiKey == "" {
-		jsonError(rw, "API key not configured", 400)
+		httputil.JSONError(rw, "API key not configured", 400)
 		return
 	}
 	count, err := w.rag.CompressAllEntries(w.ai, model)
 	if err != nil {
-		jsonError(rw, fmt.Sprintf("compressed %d, error: %s", count, err.Error()), 500)
+		httputil.JSONError(rw, fmt.Sprintf("compressed %d, error: %s", count, err.Error()), 500)
 		return
 	}
 	w.logger.Log("web_knowledge_bulk_op", "", map[string]any{"op": "compress", "count": count})
-	jsonResponse(rw, map[string]any{"ok": true, "compressed": count})
+	httputil.JSONResponse(rw, map[string]any{"ok": true, "compressed": count})
 }
 
 func (w *Web) handleKnowledgeEmbedAll(rw http.ResponseWriter, r *http.Request) {
@@ -994,16 +965,16 @@ func (w *Web) handleKnowledgeEmbedAll(rw http.ResponseWriter, r *http.Request) {
 		embModel = da.RAGEmbeddingModel
 	}
 	if apiKey == "" {
-		jsonError(rw, "API key not configured", 400)
+		httputil.JSONError(rw, "API key not configured", 400)
 		return
 	}
 	count, err := w.rag.EmbedAllEntries(w.ai, embModel)
 	if err != nil {
-		jsonError(rw, fmt.Sprintf("embedded %d, error: %s", count, err.Error()), 500)
+		httputil.JSONError(rw, fmt.Sprintf("embedded %d, error: %s", count, err.Error()), 500)
 		return
 	}
 	w.logger.Log("web_knowledge_bulk_op", "", map[string]any{"op": "embed", "count": count})
-	jsonResponse(rw, map[string]any{"ok": true, "embedded": count})
+	httputil.JSONResponse(rw, map[string]any{"ok": true, "embedded": count})
 }
 
 func (w *Web) handleKnowledgeProcessAll(rw http.ResponseWriter, r *http.Request) {
@@ -1020,16 +991,16 @@ func (w *Web) handleKnowledgeProcessAll(rw http.ResponseWriter, r *http.Request)
 		embModel = da.RAGEmbeddingModel
 	}
 	if apiKey == "" {
-		jsonError(rw, "API key not configured", 400)
+		httputil.JSONError(rw, "API key not configured", 400)
 		return
 	}
 	compressed, embedded, err := w.rag.ProcessAllEntries(w.ai, model, embModel)
 	if err != nil {
-		jsonError(rw, fmt.Sprintf("compressed %d, embedded %d, error: %s", compressed, embedded, err.Error()), 500)
+		httputil.JSONError(rw, fmt.Sprintf("compressed %d, embedded %d, error: %s", compressed, embedded, err.Error()), 500)
 		return
 	}
 	w.logger.Log("web_knowledge_bulk_op", "", map[string]any{"op": "process", "compressed": compressed, "embedded": embedded})
-	jsonResponse(rw, map[string]any{"ok": true, "compressed": compressed, "embedded": embedded})
+	httputil.JSONResponse(rw, map[string]any{"ok": true, "compressed": compressed, "embedded": embedded})
 }
 
 func (w *Web) handleKnowledgeStripHTML(rw http.ResponseWriter, r *http.Request) {
@@ -1038,11 +1009,11 @@ func (w *Web) handleKnowledgeStripHTML(rw http.ResponseWriter, r *http.Request) 
 	}
 	count, err := w.rag.StripHTMLAll()
 	if err != nil {
-		jsonError(rw, fmt.Sprintf("cleaned %d, error: %s", count, err.Error()), 500)
+		httputil.JSONError(rw, fmt.Sprintf("cleaned %d, error: %s", count, err.Error()), 500)
 		return
 	}
 	w.logger.Log("web_knowledge_bulk_op", "", map[string]any{"op": "strip_html", "count": count})
-	jsonResponse(rw, map[string]any{"ok": true, "cleaned": count})
+	httputil.JSONResponse(rw, map[string]any{"ok": true, "cleaned": count})
 }
 
 func (w *Web) handleChatPage(rw http.ResponseWriter, r *http.Request) {
@@ -1059,15 +1030,15 @@ func (w *Web) handleChat(rw http.ResponseWriter, r *http.Request) {
 		Message string `json:"message"`
 		AgentID int64  `json:"agent_id"`
 	}
-	if !requireJSON(rw, r) {
+	if !httputil.RequireJSON(rw, r) {
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(rw, "Invalid JSON", 400)
+		httputil.JSONError(rw, "Invalid JSON", 400)
 		return
 	}
 	if req.Message == "" {
-		jsonError(rw, "message required", 400)
+		httputil.JSONError(rw, "message required", 400)
 		return
 	}
 
@@ -1075,13 +1046,13 @@ func (w *Web) handleChat(rw http.ResponseWriter, r *http.Request) {
 	result := w.pipe.ProcessWithAgent(chatID, req.Message, "", req.AgentID)
 
 	if result.Error != nil {
-		jsonResponse(rw, map[string]any{
+		httputil.JSONResponse(rw, map[string]any{
 			"response": "Erro ao processar mensagem.", "chat_id": chatID, "blocked": false, "reason": "ai_error",
 		})
 		return
 	}
 
-	jsonResponse(rw, map[string]any{
+	httputil.JSONResponse(rw, map[string]any{
 		"response": result.Response, "chat_id": chatID, "blocked": result.Blocked, "reason": result.Reason,
 	})
 }
@@ -1091,7 +1062,7 @@ func (w *Web) handleChatClear(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := w.memory.DeleteMessages("webchat"); err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 	w.logger.DeleteLogs("webchat")
@@ -1101,7 +1072,7 @@ func (w *Web) handleChatClear(rw http.ResponseWriter, r *http.Request) {
 		w.tools.DeleteScheduledMessages("webchat")
 	}
 	w.logger.Log("web_chat_cleared", "", map[string]any{"chat_id": "webchat"})
-	jsonResponse(rw, map[string]any{"ok": true})
+	httputil.JSONResponse(rw, map[string]any{"ok": true})
 }
 
 func (w *Web) handleNotes(rw http.ResponseWriter, r *http.Request) {
@@ -1110,17 +1081,17 @@ func (w *Web) handleNotes(rw http.ResponseWriter, r *http.Request) {
 	}
 	chatID := r.URL.Query().Get("chat_id")
 	if chatID == "" {
-		jsonError(rw, "chat_id required", 400)
+		httputil.JSONError(rw, "chat_id required", 400)
 		return
 	}
 	if w.tools == nil {
-		jsonResponse(rw, []any{})
+		httputil.JSONResponse(rw, []any{})
 		return
 	}
 	db := w.tools.GetDB()
 	rows, err := db.Query("SELECT key, value, created_at FROM notes WHERE chat_id = ? ORDER BY key", chatID)
 	if err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 	defer rows.Close()
@@ -1134,7 +1105,7 @@ func (w *Web) handleNotes(rw http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var n note
 		if err := rows.Scan(&n.Key, &n.Value, &n.CreatedAt); err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		notes = append(notes, n)
@@ -1142,7 +1113,7 @@ func (w *Web) handleNotes(rw http.ResponseWriter, r *http.Request) {
 	if notes == nil {
 		notes = []note{}
 	}
-	jsonResponse(rw, notes)
+	httputil.JSONResponse(rw, notes)
 }
 
 // --- Custom Tools API ---
@@ -1153,7 +1124,7 @@ func (w *Web) handleCustomTools(rw http.ResponseWriter, r *http.Request) {
 	case "GET":
 		rows, err := db.Query("SELECT id, name, description, method, url_template, headers, body_template, parameters, response_path, max_bytes, enabled, created_at FROM custom_tools ORDER BY name")
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		defer rows.Close()
@@ -1162,7 +1133,7 @@ func (w *Web) handleCustomTools(rw http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var ct types.CustomTool
 			if err := rows.Scan(&ct.ID, &ct.Name, &ct.Description, &ct.Method, &ct.URLTemplate, &ct.Headers, &ct.BodyTemplate, &ct.Parameters, &ct.ResponsePath, &ct.MaxBytes, &ct.Enabled, &ct.CreatedAt); err != nil {
-				jsonError(rw, err.Error(), 500)
+				httputil.JSONError(rw, err.Error(), 500)
 				return
 			}
 			cts = append(cts, ct)
@@ -1170,23 +1141,23 @@ func (w *Web) handleCustomTools(rw http.ResponseWriter, r *http.Request) {
 		if cts == nil {
 			cts = []types.CustomTool{}
 		}
-		jsonResponse(rw, cts)
+		httputil.JSONResponse(rw, cts)
 
 	case "POST":
 		if !auth.RequireAdmin(rw, r) {
 			return
 		}
 		var ct types.CustomTool
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&ct); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 
 		if err := tools.ValidateCustomTool(ct, w.tools.GetBuiltinNames()); err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 
@@ -1194,7 +1165,7 @@ func (w *Web) handleCustomTools(rw http.ResponseWriter, r *http.Request) {
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM custom_tools").Scan(&count)
 		if count >= 20 {
-			jsonError(rw, "Limite de 20 APIs personalizadas atingido", 400)
+			httputil.JSONError(rw, "Limite de 20 APIs personalizadas atingido", 400)
 			return
 		}
 
@@ -1203,19 +1174,19 @@ func (w *Web) handleCustomTools(rw http.ResponseWriter, r *http.Request) {
 			ct.Name, ct.Description, ct.Method, ct.URLTemplate, ct.Headers, ct.BodyTemplate, ct.Parameters, ct.ResponsePath, ct.MaxBytes, 1)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
 		w.tools.ReloadCustomTools()
 		w.logger.Log("web_custom_tool_created", "", map[string]any{"id": id, "name": ct.Name})
-		jsonCreated(rw, map[string]any{"ok": true, "id": id})
+		httputil.JSONCreated(rw, map[string]any{"ok": true, "id": id})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -1228,7 +1199,7 @@ func (w *Web) handleCustomToolByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/test")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -1240,7 +1211,7 @@ func (w *Web) handleCustomToolByID(rw http.ResponseWriter, r *http.Request) {
 		err = db.QueryRow("SELECT id, name, description, method, url_template, headers, body_template, parameters, response_path, max_bytes FROM custom_tools WHERE id = ?", id).
 			Scan(&ct.ID, &ct.Name, &ct.Description, &ct.Method, &ct.URLTemplate, &ct.Headers, &ct.BodyTemplate, &ct.Parameters, &ct.ResponsePath, &ct.MaxBytes)
 		if err != nil {
-			jsonError(rw, "Tool nao encontrada", 404)
+			httputil.JSONError(rw, "Tool nao encontrada", 404)
 			return
 		}
 
@@ -1256,17 +1227,17 @@ func (w *Web) handleCustomToolByID(rw http.ResponseWriter, r *http.Request) {
 		executor := tools.MakeCustomExecutor(ct)
 		result, err := executor("test", testReq.Args)
 		if err != nil {
-			jsonResponse(rw, map[string]any{"ok": false, "error": err.Error()})
+			httputil.JSONResponse(rw, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		jsonResponse(rw, map[string]any{"ok": true, "result": result})
+		httputil.JSONResponse(rw, map[string]any{"ok": true, "result": result})
 		return
 	}
 
 	idStr := rest
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		jsonError(rw, "invalid id", 400)
+		httputil.JSONError(rw, "invalid id", 400)
 		return
 	}
 
@@ -1276,16 +1247,16 @@ func (w *Web) handleCustomToolByID(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var ct types.CustomTool
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&ct); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 
 		if err := tools.ValidateCustomTool(ct, w.tools.GetBuiltinNames()); err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 
@@ -1299,15 +1270,15 @@ func (w *Web) handleCustomToolByID(rw http.ResponseWriter, r *http.Request) {
 			ct.Name, ct.Description, ct.Method, ct.URLTemplate, ct.Headers, ct.BodyTemplate, ct.Parameters, ct.ResponsePath, ct.MaxBytes, enabled, id)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.tools.ReloadCustomTools()
 		w.logger.Log("web_custom_tool_updated", "", map[string]any{"id": id, "name": ct.Name})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	case "DELETE":
 		if !auth.RequireAdmin(rw, r) {
@@ -1319,15 +1290,15 @@ func (w *Web) handleCustomToolByID(rw http.ResponseWriter, r *http.Request) {
 
 		_, err := db.Exec("DELETE FROM custom_tools WHERE id = ?", id)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.tools.ReloadCustomTools()
 		w.logger.Log("web_custom_tool_deleted", "", map[string]any{"id": id, "name": deletedName})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -1339,7 +1310,7 @@ func (w *Web) handleMCPServers(rw http.ResponseWriter, r *http.Request) {
 	case "GET":
 		rows, err := db.Query("SELECT id, name, url, api_key, enabled, created_at FROM mcp_servers ORDER BY name")
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		defer rows.Close()
@@ -1369,7 +1340,7 @@ func (w *Web) handleMCPServers(rw http.ResponseWriter, r *http.Request) {
 			var enabled int
 			var createdAt int64
 			if err := rows.Scan(&id, &name, &mcpURL, &apiKey, &enabled, &createdAt); err != nil {
-				jsonError(rw, err.Error(), 500)
+				httputil.JSONError(rw, err.Error(), 500)
 				return
 			}
 
@@ -1401,7 +1372,7 @@ func (w *Web) handleMCPServers(rw http.ResponseWriter, r *http.Request) {
 		if servers == nil {
 			servers = []serverInfo{}
 		}
-		jsonResponse(rw, servers)
+		httputil.JSONResponse(rw, servers)
 
 	case "POST":
 		if !auth.RequireAdmin(rw, r) {
@@ -1412,19 +1383,19 @@ func (w *Web) handleMCPServers(rw http.ResponseWriter, r *http.Request) {
 			URL    string `json:"url"`
 			APIKey string `json:"api_key"`
 		}
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 		if req.Name == "" || req.URL == "" {
-			jsonError(rw, "name e url obrigatorios", 400)
+			httputil.JSONError(rw, "name e url obrigatorios", 400)
 			return
 		}
 		if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
-			jsonError(rw, "URL deve comecar com http:// ou https://", 400)
+			httputil.JSONError(rw, "URL deve comecar com http:// ou https://", 400)
 			return
 		}
 
@@ -1432,17 +1403,17 @@ func (w *Web) handleMCPServers(rw http.ResponseWriter, r *http.Request) {
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM mcp_servers").Scan(&count)
 		if count >= 10 {
-			jsonError(rw, "Limite de 10 servidores MCP atingido", 400)
+			httputil.JSONError(rw, "Limite de 10 servidores MCP atingido", 400)
 			return
 		}
 
 		res, err := db.Exec("INSERT INTO mcp_servers (name, url, api_key) VALUES (?, ?, ?)", req.Name, req.URL, req.APIKey)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
@@ -1456,10 +1427,10 @@ func (w *Web) handleMCPServers(rw http.ResponseWriter, r *http.Request) {
 		}
 
 		w.logger.Log("web_mcp_server_created", "", map[string]any{"id": id, "name": req.Name, "url": req.URL})
-		jsonCreated(rw, map[string]any{"ok": true, "id": id, "connected": connected, "error": errMsg})
+		httputil.JSONCreated(rw, map[string]any{"ok": true, "id": id, "connected": connected, "error": errMsg})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -1472,7 +1443,7 @@ func (w *Web) handleMCPServerByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/reconnect")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -1485,17 +1456,17 @@ func (w *Web) handleMCPServerByID(rw http.ResponseWriter, r *http.Request) {
 		w.tools.DisconnectMCPServer(id)
 		connectErr := w.tools.ConnectMCPServer(id)
 		if connectErr != nil {
-			jsonResponse(rw, map[string]any{"ok": false, "error": connectErr.Error()})
+			httputil.JSONResponse(rw, map[string]any{"ok": false, "error": connectErr.Error()})
 			return
 		}
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 		return
 	}
 
 	idStr := rest
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		jsonError(rw, "invalid id", 400)
+		httputil.JSONError(rw, "invalid id", 400)
 		return
 	}
 
@@ -1510,15 +1481,15 @@ func (w *Web) handleMCPServerByID(rw http.ResponseWriter, r *http.Request) {
 			APIKey string `json:"api_key"`
 			Enable *bool  `json:"enabled"`
 		}
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 		if req.Name == "" || req.URL == "" {
-			jsonError(rw, "name e url obrigatorios", 400)
+			httputil.JSONError(rw, "name e url obrigatorios", 400)
 			return
 		}
 
@@ -1531,10 +1502,10 @@ func (w *Web) handleMCPServerByID(rw http.ResponseWriter, r *http.Request) {
 			req.Name, req.URL, req.APIKey, enabled, id)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 
@@ -1545,7 +1516,7 @@ func (w *Web) handleMCPServerByID(rw http.ResponseWriter, r *http.Request) {
 		}
 
 		w.logger.Log("web_mcp_server_updated", "", map[string]any{"id": id, "name": req.Name})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	case "DELETE":
 		if !auth.RequireAdmin(rw, r) {
@@ -1558,14 +1529,14 @@ func (w *Web) handleMCPServerByID(rw http.ResponseWriter, r *http.Request) {
 		w.tools.DisconnectMCPServer(id)
 		_, err := db.Exec("DELETE FROM mcp_servers WHERE id = ?", id)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.logger.Log("web_mcp_server_deleted", "", map[string]any{"id": id, "name": deletedName})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -1577,7 +1548,7 @@ func (w *Web) handleExtDatabases(rw http.ResponseWriter, r *http.Request) {
 	case "GET":
 		rows, err := db.Query("SELECT id, name, driver, host, port, username, password, dbname, ssl_mode, max_rows, enabled, created_at FROM external_databases ORDER BY name")
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		defer rows.Close()
@@ -1602,7 +1573,7 @@ func (w *Web) handleExtDatabases(rw http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var edb types.ExternalDatabase
 			if err := rows.Scan(&edb.ID, &edb.Name, &edb.Driver, &edb.Host, &edb.Port, &edb.Username, &edb.Password, &edb.DBName, &edb.SSLMode, &edb.MaxRows, &edb.Enabled, &edb.CreatedAt); err != nil {
-				jsonError(rw, err.Error(), 500)
+				httputil.JSONError(rw, err.Error(), 500)
 				return
 			}
 
@@ -1627,23 +1598,23 @@ func (w *Web) handleExtDatabases(rw http.ResponseWriter, r *http.Request) {
 		if dbs == nil {
 			dbs = []dbInfo{}
 		}
-		jsonResponse(rw, dbs)
+		httputil.JSONResponse(rw, dbs)
 
 	case "POST":
 		if !auth.RequireAdmin(rw, r) {
 			return
 		}
 		var edb types.ExternalDatabase
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&edb); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 
 		if err := tools.ValidateExternalDatabase(edb); err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 
@@ -1651,7 +1622,7 @@ func (w *Web) handleExtDatabases(rw http.ResponseWriter, r *http.Request) {
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM external_databases").Scan(&count)
 		if count >= 10 {
-			jsonError(rw, "Limite de 10 bancos externos atingido", 400)
+			httputil.JSONError(rw, "Limite de 10 bancos externos atingido", 400)
 			return
 		}
 
@@ -1664,10 +1635,10 @@ func (w *Web) handleExtDatabases(rw http.ResponseWriter, r *http.Request) {
 			edb.Name, edb.Driver, edb.Host, edb.Port, edb.Username, edb.Password, edb.DBName, edb.SSLMode, edb.MaxRows)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
@@ -1682,10 +1653,10 @@ func (w *Web) handleExtDatabases(rw http.ResponseWriter, r *http.Request) {
 		}
 
 		w.logger.Log("web_extdb_created", "", map[string]any{"id": id, "name": edb.Name, "driver": edb.Driver})
-		jsonCreated(rw, map[string]any{"ok": true, "id": id, "connected": connected, "error": errMsg})
+		httputil.JSONCreated(rw, map[string]any{"ok": true, "id": id, "connected": connected, "error": errMsg})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -1698,7 +1669,7 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/test")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -1709,14 +1680,14 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		err = db.QueryRow("SELECT id, name, driver, host, port, username, password, dbname, ssl_mode, max_rows FROM external_databases WHERE id = ?", id).
 			Scan(&edb.ID, &edb.Name, &edb.Driver, &edb.Host, &edb.Port, &edb.Username, &edb.Password, &edb.DBName, &edb.SSLMode, &edb.MaxRows)
 		if err != nil {
-			jsonError(rw, "Banco nao encontrado", 404)
+			httputil.JSONError(rw, "Banco nao encontrado", 404)
 			return
 		}
 
 		dsn := tools.BuildDSN(edb)
 		tmpDB, err := sql.Open(edb.Driver, dsn)
 		if err != nil {
-			jsonResponse(rw, map[string]any{"ok": false, "error": err.Error()})
+			httputil.JSONResponse(rw, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
 		defer tmpDB.Close()
@@ -1724,7 +1695,7 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := tmpDB.PingContext(ctx); err != nil {
-			jsonResponse(rw, map[string]any{"ok": false, "error": "ping: " + err.Error()})
+			httputil.JSONResponse(rw, map[string]any{"ok": false, "error": "ping: " + err.Error()})
 			return
 		}
 
@@ -1741,7 +1712,7 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 			tableCount = -1
 		}
 
-		jsonResponse(rw, map[string]any{"ok": true, "tables": tableCount, "message": fmt.Sprintf("Conexao OK! %d tabelas encontradas.", tableCount)})
+		httputil.JSONResponse(rw, map[string]any{"ok": true, "tables": tableCount, "message": fmt.Sprintf("Conexao OK! %d tabelas encontradas.", tableCount)})
 		return
 	}
 
@@ -1750,7 +1721,7 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/schema")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -1760,16 +1731,16 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		var name string
 		err = db.QueryRow("SELECT name FROM external_databases WHERE id = ?", id).Scan(&name)
 		if err != nil {
-			jsonError(rw, "Banco nao encontrado", 404)
+			httputil.JSONError(rw, "Banco nao encontrado", 404)
 			return
 		}
 
 		schema, err := w.tools.GetExtDBSchema(name)
 		if err != nil {
-			jsonResponse(rw, map[string]any{"ok": false, "error": err.Error()})
+			httputil.JSONResponse(rw, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		jsonResponse(rw, map[string]any{"ok": true, "schema": schema})
+		httputil.JSONResponse(rw, map[string]any{"ok": true, "schema": schema})
 		return
 	}
 
@@ -1778,7 +1749,7 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		idStr := strings.TrimSuffix(rest, "/reconnect")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil || id <= 0 {
-			jsonError(rw, "invalid id", 400)
+			httputil.JSONError(rw, "invalid id", 400)
 			return
 		}
 		if !requirePOST(rw, r) {
@@ -1794,22 +1765,22 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		err = db.QueryRow("SELECT id, name, driver, host, port, username, password, dbname, ssl_mode, max_rows FROM external_databases WHERE id = ?", id).
 			Scan(&edb.ID, &edb.Name, &edb.Driver, &edb.Host, &edb.Port, &edb.Username, &edb.Password, &edb.DBName, &edb.SSLMode, &edb.MaxRows)
 		if err != nil {
-			jsonResponse(rw, map[string]any{"ok": false, "error": "Banco nao encontrado"})
+			httputil.JSONResponse(rw, map[string]any{"ok": false, "error": "Banco nao encontrado"})
 			return
 		}
 
 		if connectErr := w.tools.ConnectExtDB(edb); connectErr != nil {
-			jsonResponse(rw, map[string]any{"ok": false, "error": connectErr.Error()})
+			httputil.JSONResponse(rw, map[string]any{"ok": false, "error": connectErr.Error()})
 			return
 		}
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 		return
 	}
 
 	idStr := rest
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		jsonError(rw, "invalid id", 400)
+		httputil.JSONError(rw, "invalid id", 400)
 		return
 	}
 
@@ -1819,16 +1790,16 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var edb types.ExternalDatabase
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&edb); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 
 		if err := tools.ValidateExternalDatabase(edb); err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 
@@ -1853,10 +1824,10 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 			edb.Name, edb.Driver, edb.Host, edb.Port, edb.Username, edb.Password, edb.DBName, edb.SSLMode, edb.MaxRows, enabled, id)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 
@@ -1868,7 +1839,7 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		}
 
 		w.logger.Log("web_extdb_updated", "", map[string]any{"id": id, "name": edb.Name})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	case "DELETE":
 		if !auth.RequireAdmin(rw, r) {
@@ -1881,14 +1852,14 @@ func (w *Web) handleExtDatabaseByID(rw http.ResponseWriter, r *http.Request) {
 		w.tools.DisconnectExtDB(id)
 		_, err := db.Exec("DELETE FROM external_databases WHERE id = ?", id)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.logger.Log("web_extdb_deleted", "", map[string]any{"id": id, "name": deletedName})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -1919,15 +1890,15 @@ func (w *Web) handleReport(rw http.ResponseWriter, r *http.Request) {
 		Database string `json:"database"`
 		AgentID  int64  `json:"agent_id"`
 	}
-	if !requireJSON(rw, r) {
+	if !httputil.RequireJSON(rw, r) {
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(rw, "Invalid JSON", 400)
+		httputil.JSONError(rw, "Invalid JSON", 400)
 		return
 	}
 	if req.Question == "" {
-		jsonError(rw, "question required", 400)
+		httputil.JSONError(rw, "question required", 400)
 		return
 	}
 
@@ -1969,7 +1940,7 @@ func (w *Web) handleReport(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if apiKey == "" && agentAPIKey == "" {
-		jsonResponse(rw, reportResponse{Error: "API key não configurada"})
+		httputil.JSONResponse(rw, reportResponse{Error: "API key não configurada"})
 		return
 	}
 
@@ -2009,7 +1980,7 @@ func (w *Web) handleReport(rw http.ResponseWriter, r *http.Request) {
 	if isExternal {
 		extSchema, err := w.tools.GetExtDBSchema(req.Database)
 		if err != nil {
-			jsonResponse(rw, reportResponse{Error: "Erro ao obter schema: " + err.Error()})
+			httputil.JSONResponse(rw, reportResponse{Error: "Erro ao obter schema: " + err.Error()})
 			return
 		}
 		schema = extSchema
@@ -2039,20 +2010,23 @@ func (w *Web) handleReport(rw http.ResponseWriter, r *http.Request) {
 
 	// Use agent-specific client if configured
 	aiReply := func(sysPrompt, userMsg string) (string, error) {
-		if agentBaseURL != "" || agentAPIKey != "" {
-			bURL := agentBaseURL
-			aKey := agentAPIKey
-			if aKey == "" {
-				aKey = apiKey
-			}
-			return w.ai.ReplyWithClient(chatID, bURL, aKey, model, maxTokens, sysPrompt, "", "", "", nil, userMsg)
+		opts := ai.ReplyOpts{
+			ChatID: chatID, Model: model, MaxTokens: maxTokens,
+			System: sysPrompt, UserMsg: userMsg,
 		}
-		return w.ai.Reply(chatID, model, maxTokens, sysPrompt, "", "", "", nil, userMsg)
+		if agentBaseURL != "" || agentAPIKey != "" {
+			opts.BaseURL = agentBaseURL
+			opts.APIKey = agentAPIKey
+			if opts.APIKey == "" {
+				opts.APIKey = apiKey
+			}
+		}
+		return w.ai.Reply(opts)
 	}
 
 	sqlReply, err := aiReply(sqlPrompt, sqlQuestion)
 	if err != nil {
-		jsonResponse(rw, reportResponse{Error: "Erro ao gerar SQL: " + err.Error()})
+		httputil.JSONResponse(rw, reportResponse{Error: "Erro ao gerar SQL: " + err.Error()})
 		return
 	}
 
@@ -2069,7 +2043,7 @@ func (w *Web) handleReport(rw http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		resp.Error = "Erro na consulta: " + err.Error()
-		jsonResponse(rw, resp)
+		httputil.JSONResponse(rw, resp)
 		return
 	}
 	resp.Columns = cols
@@ -2079,7 +2053,7 @@ func (w *Web) handleReport(rw http.ResponseWriter, r *http.Request) {
 		resp.Insight = "Nenhum resultado encontrado."
 		resp.ChartType = "none"
 		w.saveReportMessages(chatID, sessionID, req.Question, &resp, req.Database)
-		jsonResponse(rw, resp)
+		httputil.JSONResponse(rw, resp)
 		return
 	}
 
@@ -2102,13 +2076,13 @@ Se os dados não forem adequados para gráfico, use chart_type "none" e chart_co
 		resp.Insight = "Dados retornados com sucesso."
 		resp.ChartType = "none"
 		w.saveReportMessages(chatID, sessionID, req.Question, &resp, req.Database)
-		jsonResponse(rw, resp)
+		httputil.JSONResponse(rw, resp)
 		return
 	}
 
 	parseInterpretation(interpReply, &resp)
 	w.saveReportMessages(chatID, sessionID, req.Question, &resp, req.Database)
-	jsonResponse(rw, resp)
+	httputil.JSONResponse(rw, resp)
 }
 
 // saveReportMessages persists user question and assistant response for the reports channel.
@@ -2141,7 +2115,7 @@ func (w *Web) handleReportClear(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := w.memory.DeleteMessages("reports"); err != nil {
-		jsonError(rw, err.Error(), 500)
+		httputil.JSONError(rw, err.Error(), 500)
 		return
 	}
 	w.logger.DeleteLogs("reports")
@@ -2151,7 +2125,7 @@ func (w *Web) handleReportClear(rw http.ResponseWriter, r *http.Request) {
 		w.tools.DeleteScheduledMessages("reports")
 	}
 	w.logger.Log("web_report_cleared", "", map[string]any{"chat_id": "reports"})
-	jsonResponse(rw, map[string]any{"ok": true})
+	httputil.JSONResponse(rw, map[string]any{"ok": true})
 }
 
 // cleanSQL strips markdown fences from AI-generated SQL.
@@ -2251,7 +2225,7 @@ func (w *Web) handleAgents(rw http.ResponseWriter, r *http.Request) {
 			knowledge_extract,
 			created_at FROM agents ORDER BY is_default DESC, name`)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		defer rows.Close()
@@ -2267,7 +2241,7 @@ func (w *Web) handleAgents(rw http.ResponseWriter, r *http.Request) {
 				&a.GuardBlockPIIPhone, &a.GuardBlockPIIEmail, &a.GuardBlockPIICPF,
 				&a.KnowledgeExtract,
 				&a.CreatedAt); err != nil {
-				jsonError(rw, err.Error(), 500)
+				httputil.JSONError(rw, err.Error(), 500)
 				return
 			}
 			// Mask api_key
@@ -2281,23 +2255,23 @@ func (w *Web) handleAgents(rw http.ResponseWriter, r *http.Request) {
 		if agents == nil {
 			agents = []types.Agent{}
 		}
-		jsonResponse(rw, agents)
+		httputil.JSONResponse(rw, agents)
 
 	case "POST":
 		if !auth.RequireAdmin(rw, r) {
 			return
 		}
 		var a types.Agent
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 		a.IsDefault = 0 // cannot create new default agents
 		if err := tools.ValidateAgent(a, db, 0); err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 
@@ -2324,19 +2298,19 @@ func (w *Web) handleAgents(rw http.ResponseWriter, r *http.Request) {
 			a.KnowledgeExtract)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
 		w.tools.ReloadAgents()
 		w.logger.Log("web_agent_created", "", map[string]any{"id": id, "name": a.Name})
-		jsonCreated(rw, map[string]any{"ok": true, "id": id})
+		httputil.JSONCreated(rw, map[string]any{"ok": true, "id": id})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -2345,7 +2319,7 @@ func (w *Web) handleAgentByID(rw http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/agents/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		jsonError(rw, "invalid id", 400)
+		httputil.JSONError(rw, "invalid id", 400)
 		return
 	}
 
@@ -2355,15 +2329,15 @@ func (w *Web) handleAgentByID(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var a types.Agent
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 		if err := tools.ValidateAgent(a, db, id); err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 
@@ -2410,15 +2384,15 @@ func (w *Web) handleAgentByID(rw http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				jsonError(rw, "Nome ja existe", 400)
+				httputil.JSONError(rw, "Nome ja existe", 400)
 				return
 			}
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		w.tools.ReloadAgents()
 		w.logger.Log("web_agent_updated", "", map[string]any{"id": id, "name": a.Name})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	case "DELETE":
 		if !auth.RequireAdmin(rw, r) {
@@ -2428,23 +2402,23 @@ func (w *Web) handleAgentByID(rw http.ResponseWriter, r *http.Request) {
 		var isDefaultDel int
 		db.QueryRow("SELECT name, is_default FROM agents WHERE id = ?", id).Scan(&deletedName, &isDefaultDel)
 		if isDefaultDel == 1 {
-			jsonError(rw, "Agente padrão não pode ser excluído", 400)
+			httputil.JSONError(rw, "Agente padrão não pode ser excluído", 400)
 			return
 		}
 
 		_, err := db.Exec("DELETE FROM agents WHERE id = ?", id)
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		// Cascade: remove routings for this agent
 		db.Exec("DELETE FROM agent_routing WHERE agent_id = ?", id)
 		w.tools.ReloadAgents()
 		w.logger.Log("web_agent_deleted", "", map[string]any{"id": id, "name": deletedName})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -2459,16 +2433,16 @@ func (w *Web) handleAgentRouting(rw http.ResponseWriter, r *http.Request) {
 			var agentName string
 			err := db.QueryRow("SELECT ar.agent_id, a.name FROM agent_routing ar JOIN agents a ON a.id = ar.agent_id WHERE ar.chat_id = ?", chatID).Scan(&agentID, &agentName)
 			if err != nil {
-				jsonResponse(rw, map[string]any{"agent_id": 0, "agent_name": ""})
+				httputil.JSONResponse(rw, map[string]any{"agent_id": 0, "agent_name": ""})
 				return
 			}
-			jsonResponse(rw, map[string]any{"agent_id": agentID, "agent_name": agentName})
+			httputil.JSONResponse(rw, map[string]any{"agent_id": agentID, "agent_name": agentName})
 			return
 		}
 		// List all routings
 		rows, err := db.Query("SELECT ar.chat_id, ar.agent_id, a.name FROM agent_routing ar JOIN agents a ON a.id = ar.agent_id ORDER BY ar.chat_id")
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
 		defer rows.Close()
@@ -2488,7 +2462,7 @@ func (w *Web) handleAgentRouting(rw http.ResponseWriter, r *http.Request) {
 		if list == nil {
 			list = []routing{}
 		}
-		jsonResponse(rw, list)
+		httputil.JSONResponse(rw, list)
 
 	case "POST":
 		if !auth.RequireAdmin(rw, r) {
@@ -2498,15 +2472,15 @@ func (w *Web) handleAgentRouting(rw http.ResponseWriter, r *http.Request) {
 			ChatID  string `json:"chat_id"`
 			AgentID int64  `json:"agent_id"`
 		}
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(rw, "Invalid JSON", 400)
+			httputil.JSONError(rw, "Invalid JSON", 400)
 			return
 		}
 		if req.ChatID == "" {
-			jsonError(rw, "chat_id obrigatorio", 400)
+			httputil.JSONError(rw, "chat_id obrigatorio", 400)
 			return
 		}
 
@@ -2518,7 +2492,7 @@ func (w *Web) handleAgentRouting(rw http.ResponseWriter, r *http.Request) {
 			var exists int
 			db.QueryRow("SELECT COUNT(*) FROM agents WHERE id = ?", req.AgentID).Scan(&exists)
 			if exists == 0 {
-				jsonError(rw, "Agente nao encontrado", 400)
+				httputil.JSONError(rw, "Agente nao encontrado", 400)
 				return
 			}
 			// Upsert routing
@@ -2526,15 +2500,15 @@ func (w *Web) handleAgentRouting(rw http.ResponseWriter, r *http.Request) {
 				"INSERT INTO agent_routing (chat_id, agent_id) VALUES (?, ?) ON CONFLICT(chat_id) DO UPDATE SET agent_id = excluded.agent_id",
 				req.ChatID, req.AgentID)
 			if err != nil {
-				jsonError(rw, err.Error(), 500)
+				httputil.JSONError(rw, err.Error(), 500)
 				return
 			}
 		}
 		w.tools.ReloadAgents()
 		w.logger.Log("web_agent_routing_changed", req.ChatID, map[string]any{"agent_id": req.AgentID})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }

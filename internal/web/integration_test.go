@@ -2489,4 +2489,3 @@ func TestEmptyArraysNotNull(t *testing.T) {
 		t.Error("/api/logs returned null, expected []")
 	}
 }
-
