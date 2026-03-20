@@ -98,9 +98,8 @@ func (g *Guardrails) CheckInput(chatID, text string, s GuardSettings) types.Guar
 	// 3. Blocked input patterns (one per line)
 	if s.BlockedInput != "" {
 		lower := strings.ToLower(text)
-		for _, pattern := range strings.Split(s.BlockedInput, "\n") {
-			pattern = strings.TrimSpace(pattern)
-			if pattern != "" && strings.Contains(lower, strings.ToLower(pattern)) {
+		for _, pattern := range splitLines(s.BlockedInput) {
+			if strings.Contains(lower, strings.ToLower(pattern)) {
 				return types.GuardrailResult{
 					Allowed: false,
 					Reason:  "blocked_pattern",
@@ -148,9 +147,8 @@ func (g *Guardrails) CheckOutput(chatID, text string, s GuardSettings) types.Gua
 	// 2. Blocked output patterns
 	if s.BlockedOutput != "" {
 		lower := strings.ToLower(result)
-		for _, pattern := range strings.Split(s.BlockedOutput, "\n") {
-			pattern = strings.TrimSpace(pattern)
-			if pattern != "" && strings.Contains(lower, strings.ToLower(pattern)) {
+		for _, pattern := range splitLines(s.BlockedOutput) {
+			if strings.Contains(lower, strings.ToLower(pattern)) {
 				return types.GuardrailResult{
 					Allowed: false,
 					Reason:  "blocked_output_pattern",
@@ -162,9 +160,11 @@ func (g *Guardrails) CheckOutput(chatID, text string, s GuardSettings) types.Gua
 
 	// 3. PII detection (phone, email, CPF) — granular or legacy master toggle
 	{
-		piiPhone := s.BlockPIIPhone || (s.BlockPII && !s.BlockPIIPhone && !s.BlockPIIEmail && !s.BlockPIICPF)
-		piiEmail := s.BlockPIIEmail || (s.BlockPII && !s.BlockPIIPhone && !s.BlockPIIEmail && !s.BlockPIICPF)
-		piiCPF := s.BlockPIICPF || (s.BlockPII && !s.BlockPIIPhone && !s.BlockPIIEmail && !s.BlockPIICPF)
+		noGranular := !s.BlockPIIPhone && !s.BlockPIIEmail && !s.BlockPIICPF
+		piiAll := s.BlockPII && noGranular
+		piiPhone := s.BlockPIIPhone || piiAll
+		piiEmail := s.BlockPIIEmail || piiAll
+		piiCPF := s.BlockPIICPF || piiAll
 
 		var detected []string
 		if piiPhone && g.piiPhone.MatchString(result) {
@@ -191,6 +191,18 @@ func (g *Guardrails) CheckOutput(chatID, text string, s GuardSettings) types.Gua
 	}
 
 	return types.GuardrailResult{Allowed: true}
+}
+
+// splitLines splits a newline-separated string into trimmed, non-empty strings.
+func splitLines(s string) []string {
+	var result []string
+	for _, item := range strings.Split(s, "\n") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // splitList splits a comma-separated list into trimmed, non-empty strings.
