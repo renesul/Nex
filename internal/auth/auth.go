@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"next/internal/httputil"
 	"next/internal/logger"
 )
 
@@ -60,29 +61,6 @@ const (
 
 // BcryptCost controls bcrypt hashing cost. Lowered in tests for speed.
 var BcryptCost = 12
-
-// jsonResponse writes a JSON response with the correct Content-Type header.
-func jsonResponse(rw http.ResponseWriter, data any) {
-	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(data)
-}
-
-// jsonError writes a JSON error response with the given status code.
-func jsonError(rw http.ResponseWriter, message string, statusCode int) {
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(statusCode)
-	json.NewEncoder(rw).Encode(map[string]string{"error": message})
-}
-
-// requireJSON returns true if the request has a JSON Content-Type, otherwise sends 415.
-func requireJSON(rw http.ResponseWriter, r *http.Request) bool {
-	ct := r.Header.Get("Content-Type")
-	if ct != "" && !strings.HasPrefix(ct, "application/json") {
-		jsonError(rw, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
-		return false
-	}
-	return true
-}
 
 // NewAuth creates the users/sessions tables and starts the session cleanup goroutine.
 func NewAuth(db *sql.DB, l *logger.Logger) (*Auth, error) {
@@ -409,7 +387,7 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		// If must change password, only allow change-password and logout
 		if session.MustChangePassword && path != "/api/auth/change-password" && path != "/api/logout" && path != "/api/auth/status" {
 			if strings.HasPrefix(path, "/api/") {
-				jsonError(rw, "must_change_password", 403)
+				httputil.JSONError(rw, "must_change_password", 403)
 				return
 			}
 			// Redirect to login page for non-API requests
@@ -425,7 +403,7 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 
 func (a *Auth) denyAccess(rw http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		jsonError(rw, "unauthorized", 401)
+		httputil.JSONError(rw, "unauthorized", 401)
 		return
 	}
 	http.Redirect(rw, r, "/login", 302)
@@ -444,7 +422,7 @@ func (a *Auth) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != "POST" {
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 		return
 	}
 
@@ -452,18 +430,18 @@ func (a *Auth) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if !requireJSON(rw, r) {
+	if !httputil.RequireJSON(rw, r) {
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(rw, "JSON invalido", 400)
+		httputil.JSONError(rw, "JSON invalido", 400)
 		return
 	}
 
 	user, err := a.Authenticate(req.Username, req.Password)
 	if err != nil {
 		a.logEvent("auth_login_failed", "", map[string]any{"username": req.Username, "reason": err.Error()})
-		jsonError(rw, err.Error(), 401)
+		httputil.JSONError(rw, err.Error(), 401)
 		return
 	}
 
@@ -489,7 +467,7 @@ func (a *Auth) HandleLogin(rw http.ResponseWriter, r *http.Request) {
 // HandleLogout destroys the session and clears the cookie.
 func (a *Auth) HandleLogout(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 		return
 	}
 	cookie, err := r.Cookie(authCookieName)
@@ -514,13 +492,13 @@ func (a *Auth) HandleLogout(rw http.ResponseWriter, r *http.Request) {
 // HandleChangePassword handles POST /api/auth/change-password.
 func (a *Auth) HandleChangePassword(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 		return
 	}
 
 	s := GetSessionFromCtx(r)
 	if s == nil {
-		jsonError(rw, "unauthorized", 401)
+		httputil.JSONError(rw, "unauthorized", 401)
 		return
 	}
 
@@ -528,11 +506,11 @@ func (a *Auth) HandleChangePassword(rw http.ResponseWriter, r *http.Request) {
 		CurrentPassword string `json:"current_password"`
 		NewPassword     string `json:"new_password"`
 	}
-	if !requireJSON(rw, r) {
+	if !httputil.RequireJSON(rw, r) {
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(rw, "JSON invalido", 400)
+		httputil.JSONError(rw, "JSON invalido", 400)
 		return
 	}
 
@@ -540,12 +518,12 @@ func (a *Auth) HandleChangePassword(rw http.ResponseWriter, r *http.Request) {
 	var hash string
 	a.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", s.UserID).Scan(&hash)
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.CurrentPassword)) != nil {
-		jsonError(rw, "senha atual incorreta", 400)
+		httputil.JSONError(rw, "senha atual incorreta", 400)
 		return
 	}
 
 	if err := a.UpdatePassword(s.UserID, req.NewPassword); err != nil {
-		jsonError(rw, err.Error(), 400)
+		httputil.JSONError(rw, err.Error(), 400)
 		return
 	}
 
@@ -554,7 +532,7 @@ func (a *Auth) HandleChangePassword(rw http.ResponseWriter, r *http.Request) {
 	s.MustChangePassword = false
 
 	a.logEvent("auth_password_changed", "", map[string]any{"username": s.Username})
-	jsonResponse(rw, map[string]any{"ok": true})
+	httputil.JSONResponse(rw, map[string]any{"ok": true})
 }
 
 func (a *Auth) cleanupLoop() {
@@ -586,7 +564,7 @@ func RequireAdmin(rw http.ResponseWriter, r *http.Request) bool {
 	if s != nil && s.Role == "admin" {
 		return true
 	}
-	jsonError(rw, "forbidden", 403)
+	httputil.JSONError(rw, "forbidden", 403)
 	return false
 }
 
@@ -627,10 +605,10 @@ func (a *Auth) HandleUsers(rw http.ResponseWriter, r *http.Request) {
 		}
 		users, err := a.ListUsers()
 		if err != nil {
-			jsonError(rw, err.Error(), 500)
+			httputil.JSONError(rw, err.Error(), 500)
 			return
 		}
-		jsonResponse(rw, users)
+		httputil.JSONResponse(rw, users)
 
 	case "POST":
 		if !RequireAdmin(rw, r) {
@@ -642,16 +620,16 @@ func (a *Auth) HandleUsers(rw http.ResponseWriter, r *http.Request) {
 			Password string `json:"password"`
 			Role     string `json:"role"`
 		}
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(rw, "JSON invalido", 400)
+			httputil.JSONError(rw, "JSON invalido", 400)
 			return
 		}
 		user, err := a.CreateUser(req.Username, req.Password, req.Role)
 		if err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 
@@ -665,7 +643,7 @@ func (a *Auth) HandleUsers(rw http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(rw).Encode(map[string]any{"ok": true, "id": user.ID})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
 
@@ -674,7 +652,7 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/users/")
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		jsonError(rw, "invalid id", 400)
+		httputil.JSONError(rw, "invalid id", 400)
 		return
 	}
 
@@ -685,11 +663,11 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 			CurrentPassword string `json:"current_password"`
 			Role            string `json:"role"`
 		}
-		if !requireJSON(rw, r) {
+		if !httputil.RequireJSON(rw, r) {
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(rw, "JSON invalido", 400)
+			httputil.JSONError(rw, "JSON invalido", 400)
 			return
 		}
 
@@ -704,18 +682,18 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 				var hash string
 				a.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", id).Scan(&hash)
 				if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.CurrentPassword)) != nil {
-					jsonError(rw, "senha atual incorreta", 400)
+					httputil.JSONError(rw, "senha atual incorreta", 400)
 					return
 				}
 			} else if s == nil || s.Role != "admin" {
-				jsonError(rw, "forbidden", 403)
+				httputil.JSONError(rw, "forbidden", 403)
 				return
 			}
 			if err := a.UpdatePassword(id, req.Password); err != nil {
-				jsonError(rw, err.Error(), 400)
+				httputil.JSONError(rw, err.Error(), 400)
 				return
 			}
-			jsonResponse(rw, map[string]any{"ok": true})
+			httputil.JSONResponse(rw, map[string]any{"ok": true})
 			return
 		}
 
@@ -729,7 +707,7 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 			a.db.QueryRow("SELECT role FROM users WHERE id = ?", id).Scan(&oldRole)
 
 			if err := a.UpdateRole(id, req.Role); err != nil {
-				jsonError(rw, err.Error(), 400)
+				httputil.JSONError(rw, err.Error(), 400)
 				return
 			}
 			by := ""
@@ -739,11 +717,11 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 			a.logEvent("auth_user_role_changed", "", map[string]any{"user_id": id, "old_role": oldRole, "new_role": req.Role, "by": by})
 			// Invalidate user sessions so role takes effect
 			a.DestroyUserSessions(id)
-			jsonResponse(rw, map[string]any{"ok": true})
+			httputil.JSONResponse(rw, map[string]any{"ok": true})
 			return
 		}
 
-		jsonError(rw, "nothing to update", 400)
+		httputil.JSONError(rw, "nothing to update", 400)
 
 	case "DELETE":
 		if !RequireAdmin(rw, r) {
@@ -751,7 +729,7 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 		}
 		s := GetSessionFromCtx(r)
 		if s != nil && s.UserID == id {
-			jsonError(rw, "nao pode deletar a si mesmo", 400)
+			httputil.JSONError(rw, "nao pode deletar a si mesmo", 400)
 			return
 		}
 		// Get username before deletion for logging
@@ -759,7 +737,7 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 		a.db.QueryRow("SELECT username FROM users WHERE id = ?", id).Scan(&deletedUsername)
 
 		if err := a.DeleteUser(id); err != nil {
-			jsonError(rw, err.Error(), 400)
+			httputil.JSONError(rw, err.Error(), 400)
 			return
 		}
 		by := ""
@@ -767,9 +745,9 @@ func (a *Auth) HandleUserByID(rw http.ResponseWriter, r *http.Request) {
 			by = s.Username
 		}
 		a.logEvent("auth_user_deleted", "", map[string]any{"user_id": id, "username": deletedUsername, "by": by})
-		jsonResponse(rw, map[string]any{"ok": true})
+		httputil.JSONResponse(rw, map[string]any{"ok": true})
 
 	default:
-		jsonError(rw, "Method not allowed", 405)
+		httputil.JSONError(rw, "Method not allowed", 405)
 	}
 }
