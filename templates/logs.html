@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Logs - Next</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 <style>
 .container { }
@@ -15,24 +13,7 @@ td { vertical-align: top; }
 </head>
 <body>
 
-<div class="header">
-  <h1>Logs</h1>
-  <input type="checkbox" id="nav-toggle" style="display:none">
-  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
-  <div class="nav-links">
-    <a href="/conversas">Conversas</a>
-    <a href="/chat">Chat</a>
-    <a href="/agentes">Agentes</a>
-    <a href="/ferramentas">Ferramentas</a>
-    <a href="/mcp-admin">MCP</a>
-    <a href="/databases">Databases</a>
-    <a href="/conhecimento">Conhecimento</a>
-    <a href="/relatorios">Relatórios</a>
-    <a href="/config">Config</a>
-    <span id="auth-user" style="display:none"></span>
-    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
-  </div>
-</div>
+{{template "header" .}}
 
 <div class="container">
   <div class="banner" id="banner">
@@ -124,10 +105,10 @@ td { vertical-align: top; }
     <table>
       <thead>
         <tr>
-          <th>Hora</th>
-          <th>Evento</th>
-          <th>Chat ID</th>
-          <th>Dados</th>
+          <th scope="col">Hora</th>
+          <th scope="col">Evento</th>
+          <th scope="col">Chat ID</th>
+          <th scope="col">Dados</th>
         </tr>
       </thead>
       <tbody id="log-body">
@@ -137,20 +118,17 @@ td { vertical-align: top; }
   </div>
 </div>
 
+<script src="/static/shared.js"></script>
 <script>
-function formatTime(ts) {
-  return new Date(ts * 1000).toLocaleString('pt-BR', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-}
+var formatTime = formatTimeAbsolute;
 
 function formatData(data) {
   if (!data || Object.keys(data).length === 0) return '<span style="color:#d1d5db">—</span>';
-  const pretty = JSON.stringify(data, null, 2);
-  const preview = JSON.stringify(data).substring(0, 60).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const hasMore = JSON.stringify(data).length > 60;
-  const prettyEsc = pretty.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `<span class="preview">${preview}${hasMore ? '<span class="expand-hint">&#9660;</span>' : ''}</span><pre>${prettyEsc}</pre>`;
+  var pretty = JSON.stringify(data, null, 2);
+  var raw = JSON.stringify(data);
+  var preview = escapeHtml(raw.substring(0, 60));
+  var hasMore = raw.length > 60;
+  return `<span class="preview">${preview}${hasMore ? '<span class="expand-hint">&#9660;</span>' : ''}</span><pre>${escapeHtml(pretty)}</pre>`;
 }
 
 let expandedRow = -1;
@@ -175,18 +153,6 @@ function restoreExpanded() {
   const row = tbody.rows[expandedRow];
   if (row) row.querySelector('.data-cell')?.classList.add('expanded');
 }
-
-async function apiFetch(url, opts) {
-  const r = await fetch(url, opts);
-  if (r.status === 401) { location.href = '/login'; return null; }
-  if (r.status === 403) { return null; }
-  return r;
-}
-async function getError(r) {
-  try { const d = await r.json(); return d.error || 'Erro desconhecido'; }
-  catch(e) { return 'Erro desconhecido'; }
-}
-async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
 
 async function checkDebug() {
   try {
@@ -239,15 +205,9 @@ async function loadLogs() {
 
 checkDebug();
 loadLogs();
-setInterval(loadLogs, 10000);
+setInterval(function() { if (!document.hidden) loadLogs(); }, 10000);
 
-fetch('/api/auth/status').then(r=>r.json()).then(d=>{
-  if(d.enabled&&d.user){
-    document.getElementById('auth-user').textContent=d.user.username;
-    document.getElementById('auth-user').style.display='';
-    document.getElementById('logout-link').style.display='';
-  }
-}).catch(()=>{});
+initAuth();
 </script>
 </body>
 </html>

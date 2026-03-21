@@ -1,0 +1,21 @@
+{{define "header"}}
+<div class="header">
+  <h1>{{.Title}}</h1>
+  <input type="checkbox" id="nav-toggle" class="hidden">
+  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegacao"><span></span><span></span><span></span></label>
+  <div class="nav-links">
+    <a href="/conversas"{{if eq .Page "conversas"}} class="active"{{end}}>Conversas</a>
+    <a href="/chat"{{if eq .Page "chat"}} class="active"{{end}}>Chat</a>
+    <a href="/agentes"{{if eq .Page "agentes"}} class="active"{{end}}>Agentes</a>
+    <a href="/ferramentas"{{if eq .Page "ferramentas"}} class="active"{{end}}>Ferramentas</a>
+    <a href="/mcp-admin"{{if eq .Page "mcp"}} class="active"{{end}}>MCP</a>
+    <a href="/databases"{{if eq .Page "databases"}} class="active"{{end}}>Databases</a>
+    <a href="/conhecimento"{{if eq .Page "conhecimento"}} class="active"{{end}}>Conhecimento</a>
+    <a href="/relatorios"{{if eq .Page "relatorios"}} class="active"{{end}}>Relatorios</a>
+    <a href="/config"{{if eq .Page "config"}} class="active"{{end}}>Config</a>
+    <a href="/logs"{{if eq .Page "logs"}} class="active"{{end}}>Logs</a>
+    <span id="auth-user" class="hidden"></span>
+    <a href="#" id="logout-link" class="hidden" onclick="doLogout();return false;">Sair</a>
+  </div>
+</div>
+{{end}}

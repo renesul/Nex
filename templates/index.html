@@ -5,30 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Next</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-<div class="header">
-  <h1>Next</h1>
-  <input type="checkbox" id="nav-toggle" style="display:none">
-  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
-  <div class="nav-links">
-    <a href="/conversas">Conversas</a>
-    <a href="/chat">Chat</a>
-    <a href="/agentes">Agentes</a>
-    <a href="/ferramentas">Ferramentas</a>
-    <a href="/mcp-admin">MCP</a>
-    <a href="/databases">Databases</a>
-    <a href="/conhecimento">Conhecimento</a>
-    <a href="/relatorios">Relatórios</a>
-    <a href="/logs">Logs</a>
-    <span id="auth-user" style="display:none"></span>
-    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
-  </div>
-</div>
+{{template "header" .}}
 
 <div class="container">
   <!-- Status bar (always visible) -->
@@ -294,25 +275,10 @@
      /ferramentas, /agentes, /mcp-admin, /databases -->
 
 
+<script src="/static/shared.js"></script>
 <script>
 // Auth state
 let authUser = null;
-
-async function apiFetch(url, opts) {
-  const r = await fetch(url, opts);
-  if (r.status === 401) { location.href = '/login'; return null; }
-  if (r.status === 403) { toast('Sem permissao'); return null; }
-  return r;
-}
-async function getError(r) {
-  try { const d = await r.json(); return d.error || 'Erro desconhecido'; }
-  catch(e) { return 'Erro desconhecido'; }
-}
-
-async function doLogout() {
-  await fetch('/api/logout', {method:'POST'});
-  location.href = '/login';
-}
 
 const fields = ['base_url','api_key','max_history',
   'debounce_ms','debounce_max_ms','session_timeout_min','context_budget','timezone','debug',
@@ -326,13 +292,6 @@ function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   event.currentTarget.classList.add('active');
-}
-
-function toast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
 }
 
 async function testAI() {
@@ -540,40 +499,28 @@ loadConfig();
 pollStatus();
 setInterval(pollStatus, 2000);
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
 // Tools, MCP, ExtDBs and Agents JS removed — now in dedicated pages
 // (/ferramentas, /mcp-admin, /databases, /agentes)
 
 // --- Auth / Users ---
-async function checkAuth() {
-  try {
-    const r = await fetch('/api/auth/status');
-    const data = await r.json();
-    if (!data.user) return;
-    authUser = data.user;
-    // Show username and logout
-    document.getElementById('auth-user').textContent = authUser.username;
-    document.getElementById('auth-user').style.display = '';
-    document.getElementById('logout-link').style.display = '';
+function checkAuth() {
+  initAuth(function(user) {
+    authUser = user;
     // Show Usuarios tab button and password card for all logged-in users
     document.getElementById('tab-btn-usuarios').style.display = '';
     document.getElementById('my-password-card').style.display = '';
-    if (authUser.role === 'admin') {
-      // Show users management card
+    if (user.role === 'admin') {
       document.getElementById('users-card').style.display = '';
       loadUsers();
     } else {
       // Non-admin: hide all tabs except Usuarios
-      document.querySelectorAll('.tab-btn').forEach(btn => {
-        const tabName = btn.getAttribute('onclick');
-        if (tabName && !tabName.includes('usuarios')) {
-          btn.style.display = 'none';
-        }
+      document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        var tabName = btn.getAttribute('onclick');
+        if (tabName && !tabName.includes('usuarios')) btn.style.display = 'none';
       });
       switchTabDirect('usuarios');
     }
-  } catch(e) { console.error('auth check:', e); }
+  });
 }
 
 function switchTabDirect(name) {

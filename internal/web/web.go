@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -69,14 +70,37 @@ type WebDeps struct {
 	SaveCfg   func() error
 }
 
-// serveTemplate parses and executes a template file.
+// headerData holds the data passed to templates for the shared header partial.
+type headerData struct {
+	Title string
+	Page  string
+}
+
+// pageInfo maps template filenames to their title and page identifier.
+var pageInfo = map[string]headerData{
+	"templates/index.html":        {Title: "Next", Page: "config"},
+	"templates/conversas.html":    {Title: "Conversas", Page: "conversas"},
+	"templates/chat.html":         {Title: "Next", Page: "chat"},
+	"templates/agentes.html":      {Title: "Agentes", Page: "agentes"},
+	"templates/ferramentas.html":  {Title: "Ferramentas", Page: "ferramentas"},
+	"templates/mcp.html":          {Title: "MCP", Page: "mcp"},
+	"templates/databases.html":    {Title: "Bancos de Dados", Page: "databases"},
+	"templates/conhecimento.html": {Title: "Conhecimento", Page: "conhecimento"},
+	"templates/logs.html":         {Title: "Logs", Page: "logs"},
+	"templates/relatorios.html":   {Title: "Relatorios", Page: "relatorios"},
+	"templates/login.html":        {Title: "Login", Page: "login"},
+}
+
+// serveTemplate parses and executes a template file along with the shared header partial.
 func serveTemplate(rw http.ResponseWriter, filename string) {
-	tmpl, err := template.ParseFiles(filename)
+	tmpl, err := template.ParseFiles(filename, "templates/_header.html")
 	if err != nil {
-		http.Error(rw, "Template error: "+err.Error(), 500)
+		log.Printf("template error: %s: %v", filename, err)
+		http.Error(rw, "Internal server error", 500)
 		return
 	}
-	tmpl.Execute(rw, nil)
+	data := pageInfo[filename]
+	tmpl.Execute(rw, data)
 }
 
 // parsePagination extracts page and limit from query params, returning (page, limit, offset).

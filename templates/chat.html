@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chat - Next</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 <style>
 body { height: 100vh; display: flex; flex-direction: column; }
@@ -15,25 +13,7 @@ body { height: 100vh; display: flex; flex-direction: column; }
 </head>
 <body>
 
-<div class="header">
-  <h1>Next</h1>
-  <input type="checkbox" id="nav-toggle" style="display:none">
-  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
-  <div class="nav-links">
-    <a href="/conversas">Conversas</a>
-    <a href="/chat">Chat</a>
-    <a href="/agentes">Agentes</a>
-    <a href="/ferramentas">Ferramentas</a>
-    <a href="/mcp-admin">MCP</a>
-    <a href="/databases">Databases</a>
-    <a href="/conhecimento">Conhecimento</a>
-    <a href="/relatorios">Relatórios</a>
-    <a href="/config">Config</a>
-    <a href="/logs">Logs</a>
-    <span id="auth-user" style="display:none"></span>
-    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
-  </div>
-</div>
+{{template "header" .}}
 
 <div class="chat-container">
   <div class="badges">
@@ -67,18 +47,8 @@ body { height: 100vh; display: flex; flex-direction: column; }
   </div>
 </div>
 
+<script src="/static/shared.js"></script>
 <script>
-async function apiFetch(url, opts) {
-  const r = await fetch(url, opts);
-  if (r.status === 401) { location.href = '/login'; return null; }
-  if (r.status === 403) { return null; }
-  return r;
-}
-async function getError(r) {
-  try { const d = await r.json(); return d.error || 'Erro desconhecido'; }
-  catch(e) { return 'Erro desconhecido'; }
-}
-async function doLogout() { await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
 
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
@@ -117,12 +87,6 @@ function scrollToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function escapeHtml(text) {
-  const d = document.createElement('div');
-  d.textContent = text;
-  return d.innerHTML;
-}
-
 async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text) return;
@@ -145,8 +109,8 @@ async function sendMessage() {
     if (!resp) { typingEl.style.display = 'none'; sendBtn.disabled = false; return; }
     const data = await resp.json();
 
-    // Simulate typing delay proportional to response length (min 500ms, max 4s)
-    const delay = Math.min(4000, Math.max(500, (data.response || '').length * 30));
+    // Brief typing indicator (min 300ms, max 1.5s)
+    const delay = Math.min(1500, Math.max(300, (data.response || '').length * 10));
     await new Promise(r => setTimeout(r, delay));
 
     typingEl.style.display = 'none';
@@ -197,13 +161,7 @@ apiFetch('/api/agents').then(r => r&&r.json()).then(agents => {
 
 inputEl.focus();
 
-fetch('/api/auth/status').then(r=>r.json()).then(d=>{
-  if(d.enabled&&d.user){
-    document.getElementById('auth-user').textContent=d.user.username;
-    document.getElementById('auth-user').style.display='';
-    document.getElementById('logout-link').style.display='';
-  }
-}).catch(()=>{});
+initAuth();
 </script>
 </body>
 </html>

@@ -5,12 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ferramentas - Next</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><text x='50' y='72' font-size='60' font-family='system-ui' font-weight='700' fill='%233b82f6' text-anchor='middle'>N</text></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 <style>
-.badge{display:inline-block;padding:4px 10px;background:#f0fdf4;color:#1e40af;border:1px solid #bbf7d0;border-radius:6px;font-size:12px;font-weight:500;cursor:default;margin:3px 2px;}
-.badge:hover{background:#dcfce7;}
+.tool-badge{display:inline-block;padding:4px 10px;background:#f0fdf4;color:#1e40af;border:1px solid #bbf7d0;border-radius:6px;font-size:12px;font-weight:500;cursor:default;margin:3px 2px;}
+.tool-badge:hover{background:#dcfce7;}
 .tool-card{padding:14px 16px;margin-bottom:8px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;}
 .tool-card-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;}
 .tool-card-info{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
@@ -33,24 +31,7 @@
 </head>
 <body>
 
-<div class="header">
-  <h1>Ferramentas</h1>
-  <input type="checkbox" id="nav-toggle" style="display:none">
-  <label for="nav-toggle" class="nav-hamburger" aria-label="Menu de navegação"><span></span><span></span><span></span></label>
-  <div class="nav-links">
-    <a href="/conversas">Conversas</a>
-    <a href="/chat">Chat</a>
-    <a href="/agentes">Agentes</a>
-    <a href="/mcp-admin">MCP</a>
-    <a href="/databases">Databases</a>
-    <a href="/conhecimento">Conhecimento</a>
-    <a href="/relatorios">Relatórios</a>
-    <a href="/config">Config</a>
-    <a href="/logs">Logs</a>
-    <span id="auth-user" style="display:none"></span>
-    <a href="#" id="logout-link" style="display:none" onclick="doLogout();return false;">Sair</a>
-  </div>
-</div>
+{{template "header" .}}
 
 <div class="container">
 
@@ -134,10 +115,10 @@
       <label for="ct-enabled">Ferramenta ativa</label>
     </div>
 
-    <div style="display:flex;gap:8px;">
-      <button class="btn" id="save-btn" onclick="saveTool()" style="flex:1;">Salvar API</button>
-      <button class="btn btn-test" id="test-btn" onclick="testTool()" style="flex:1;">Testar</button>
-      <button class="btn btn-secondary" id="cancel-btn" onclick="cancelEdit()" style="display:none;">Cancelar</button>
+    <div class="btn-row">
+      <button class="btn" id="save-btn" onclick="saveTool()">Salvar API</button>
+      <button class="btn btn-test" id="test-btn" onclick="testTool()">Testar</button>
+      <button class="btn btn-secondary hidden" id="cancel-btn" onclick="cancelEdit()">Cancelar</button>
     </div>
 
     <div class="test-result" id="ct-test-result"></div>
@@ -158,42 +139,11 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="/static/shared.js"></script>
 <script>
 let customTools = [];
 let editingId = null;
 let paramCount = 0;
-
-// --- Utility ---
-
-function esc(s) {
-  if (!s) return '';
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-function toast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-async function apiFetch(url, opts) {
-  const r = await fetch(url, opts);
-  if (r.status === 401) { location.href = '/login'; return null; }
-  if (r.status === 403) { toast('Sem permissao'); return null; }
-  return r;
-}
-async function getError(r) {
-  try { const d = await r.json(); return d.error || 'Erro desconhecido'; }
-  catch(e) { return 'Erro desconhecido'; }
-}
-
-async function doLogout() {
-  await fetch('/api/logout', {method:'POST'});
-  location.href = '/login';
-}
 
 // --- Built-in tools ---
 
@@ -210,7 +160,7 @@ async function loadBuiltinTools() {
     }
     container.innerHTML = tools
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map(t => `<span class="badge" title="${esc(t.description)}">${esc(t.name)}</span>`)
+      .map(t => `<span class="tool-badge" title="${esc(t.description)}">${esc(t.name)}</span>`)
       .join('');
   } catch(e) { console.error('load builtin tools:', e); }
 }
@@ -328,7 +278,7 @@ function resetForm() {
   document.getElementById('ct-test-result').style.display = 'none';
   document.getElementById('form-title').textContent = 'Adicionar API Personalizada';
   document.getElementById('save-btn').textContent = 'Salvar API';
-  document.getElementById('cancel-btn').style.display = 'none';
+  document.getElementById('cancel-btn').classList.add('hidden');
   paramCount = 0;
   updateBodyVisibility();
 }
@@ -401,7 +351,7 @@ function startEdit(id) {
   document.getElementById('ct-test-result').style.display = 'none';
   document.getElementById('form-title').textContent = 'Editar API Personalizada';
   document.getElementById('save-btn').textContent = 'Atualizar API';
-  document.getElementById('cancel-btn').style.display = 'inline-block';
+  document.getElementById('cancel-btn').classList.remove('hidden');
   updateBodyVisibility();
   document.getElementById('form-card').scrollIntoView({ behavior: 'smooth' });
 }
@@ -455,7 +405,7 @@ async function testTool() {
       document.getElementById('ct-edit-id').value = id;
       document.getElementById('form-title').textContent = 'Editar API Personalizada';
       document.getElementById('save-btn').textContent = 'Atualizar API';
-      document.getElementById('cancel-btn').style.display = 'inline-block';
+      document.getElementById('cancel-btn').classList.remove('hidden');
       await loadCustomTools();
       await loadBuiltinTools();
     } catch(e) { toast('Erro: ' + e.message); return; }
@@ -503,13 +453,7 @@ async function testExisting(id) {
 loadBuiltinTools();
 loadCustomTools();
 
-fetch('/api/auth/status').then(r=>r.json()).then(d=>{
-  if(d.enabled&&d.user){
-    document.getElementById('auth-user').textContent=d.user.username;
-    document.getElementById('auth-user').style.display='';
-    document.getElementById('logout-link').style.display='';
-  }
-}).catch(()=>{});
+initAuth();
 </script>
 </body>
 </html>
